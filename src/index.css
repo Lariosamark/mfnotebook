@@ -1,0 +1,166 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body { background: #f0fdf4; color: #111827; }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+  ::selection { background: rgba(34,197,94,0.2); }
+}
+
+/* ── App Shell ─────────────────────────────────────────── */
+.app-sidebar {
+  background: #166534;
+  background-image: linear-gradient(160deg, #166534 0%, #15803d 50%, #14532d 100%);
+}
+.app-notebook-panel {
+  background: #f9fafb;
+  border-right: 1px solid #e5e7eb;
+}
+.app-page-panel {
+  background: #f3f4f6;
+  border-right: 1px solid #e5e7eb;
+}
+.app-editor-area {
+  background: #ffffff;
+}
+
+/* ── TipTap Editor ─────────────────────────────────────── */
+.prose-editor .ProseMirror {
+  outline: none;
+  padding: 2.5rem 3rem;
+  min-height: 100%;
+  color: #1f2937;
+  font-size: 15px;
+  line-height: 1.85;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+.prose-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #d1d5db;
+  pointer-events: none;
+  float: left;
+  height: 0;
+  font-style: italic;
+}
+.prose-editor .ProseMirror h1 { font-family: 'Bricolage Grotesque', sans-serif; font-size: 1.8rem; font-weight: 700; color: #111827; margin: 1.5rem 0 0.75rem; line-height: 1.2; letter-spacing: -0.02em; }
+.prose-editor .ProseMirror h2 { font-family: 'Bricolage Grotesque', sans-serif; font-size: 1.3rem; font-weight: 600; color: #1f2937; margin: 1.25rem 0 0.5rem; letter-spacing: -0.01em; }
+.prose-editor .ProseMirror h3 { font-size: 1.05rem; font-weight: 600; color: #374151; margin: 1rem 0 0.4rem; }
+.prose-editor .ProseMirror p  { margin-bottom: 0.75rem; color: #374151; }
+.prose-editor .ProseMirror strong { font-weight: 600; color: #111827; }
+.prose-editor .ProseMirror em     { font-style: italic; color: #4b5563; }
+.prose-editor .ProseMirror s      { text-decoration: line-through; color: #9ca3af; }
+.prose-editor .ProseMirror code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82em;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+}
+.prose-editor .ProseMirror pre {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+.prose-editor .ProseMirror pre code { background: transparent; border: none; color: #f9fafb; padding: 0; }
+.prose-editor .ProseMirror blockquote {
+  border-left: 3px solid #22c55e;
+  padding-left: 1rem;
+  margin: 1rem 0;
+  color: #6b7280;
+  font-style: italic;
+  background: #f0fdf4;
+  border-radius: 0 6px 6px 0;
+  padding: 0.75rem 1rem;
+}
+.prose-editor .ProseMirror ul { list-style: disc;    padding-left: 1.5rem; margin-bottom: 0.75rem; }
+.prose-editor .ProseMirror ol { list-style: decimal; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+.prose-editor .ProseMirror li { color: #374151; margin-bottom: 0.2rem; }
+.prose-editor .ProseMirror hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
+.prose-editor .ProseMirror img { max-width: 100%; border-radius: 8px; margin: 0.75rem 0; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+.prose-editor .ProseMirror a  { color: #16a34a; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── Section Tabs OneNote-style ─────────────────────────── */
+.section-tab-active {
+  background: #ffffff;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.08);
+  position: relative;
+  z-index: 10;
+}
+.section-tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #ffffff;
+}
+
+/* ── Notebook List Item ───────────────────────────────── */
+.notebook-item-active {
+  background: linear-gradient(90deg, rgba(34,197,94,0.12) 0%, rgba(34,197,94,0.04) 100%);
+  border-left: 3px solid #22c55e;
+}
+
+/* ── Animations ─────────────────────────────────────────── */
+@keyframes fadeIn       { from{opacity:0}                              to{opacity:1} }
+@keyframes slideInLeft  { from{opacity:0;transform:translateX(-10px)} to{opacity:1;transform:translateX(0)} }
+@keyframes slideInRight { from{opacity:0;transform:translateX(10px)}  to{opacity:1;transform:translateX(0)} }
+@keyframes slideUp      { from{opacity:0;transform:translateY(8px)}   to{opacity:1;transform:translateY(0)} }
+@keyframes scaleIn      { from{opacity:0;transform:scale(0.96)}       to{opacity:1;transform:scale(1)} }
+
+.animate-fade-in        { animation: fadeIn 0.2s ease-out; }
+.animate-slide-in-left  { animation: slideInLeft 0.22s ease-out; }
+.animate-slide-in-right { animation: slideInRight 0.22s ease-out; }
+.animate-slide-up       { animation: slideUp 0.22s ease-out; }
+.animate-scale-in       { animation: scaleIn 0.15s ease-out; }
+
+/* ── Resizable Drag Handle ───────────────────────────── */
+.resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.resize-handle:hover, .resize-handle.dragging {
+  background: #22c55e;
+}
+
+/* ── Page title input ─────────────────────────────────── */
+.page-title-input {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.02em;
+  border: none;
+  outline: none;
+  background: transparent;
+  width: 100%;
+  padding: 1.5rem 3rem 0.5rem;
+  line-height: 1.2;
+  border-bottom: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+.page-title-input:focus {
+  border-bottom-color: #22c55e;
+}
+.page-title-input::placeholder { color: #d1d5db; }
