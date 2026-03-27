@@ -13,7 +13,6 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
   const { profile, isAdmin } = useAuth()
   const { showToast } = useApp()
 
-  const [title, setTitle]                       = useState(page?.title || '')
   const [content, setContent]                   = useState(page?.content || '')
   const [saving, setSaving]                     = useState(false)
   const [saved, setSaved]                       = useState(false)
@@ -30,16 +29,7 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
   }, [viewerMode, page?.id])
 
   useEffect(() => {
-    if (page) {
-      setTitle(page.title)
-      setContent(page.content || '')
-      setSaved(false)
-    } else {
-      // page was cleared (e.g. switched notebooks) — reset editor state
-      setTitle('')
-      setContent('')
-      setSaved(false)
-    }
+    if (page) { setContent(page.content || ''); setSaved(false) }
   }, [page?.id])
 
   useEffect(() => {
@@ -52,13 +42,13 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
     finally { setLoadingComments(false) }
   }
 
-  const scheduleAutoSave = useCallback((newTitle, newContent) => {
+  const scheduleAutoSave = useCallback((newContent) => {
     clearTimeout(saveTimer.current)
     setSaved(false)
     saveTimer.current = setTimeout(async () => {
       setSaving(true)
       try {
-        const updated = await updatePage(page.id, { title: newTitle, content: newContent })
+        const updated = await updatePage(page.id, { content: newContent })
         onUpdate?.(updated)
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
@@ -83,20 +73,9 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
 
   return (
     <div className="flex flex-col h-full app-editor-area">
-      {/* Page header / title area */}
+      {/* Slim metadata bar */}
       <div className="flex-shrink-0 border-b border-gray-100 bg-white">
-        {/* Title */}
-        {viewerMode ? (
-          <div className="page-title-input text-gray-700 select-text cursor-default">{title || 'Untitled Page'}</div>
-        ) : (
-          <input value={title}
-            onChange={(e) => { setTitle(e.target.value); scheduleAutoSave(e.target.value, content) }}
-            className="page-title-input"
-            placeholder="Untitled Page" />
-        )}
-
-        {/* Metadata bar */}
-        <div className="flex items-center gap-3 px-6 pb-2.5">
+        <div className="flex items-center gap-3 px-6 py-2.5">
           {viewerMode ? (
             <span className="flex items-center gap-1.5 text-xs bg-amber-50 text-amber-600 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
               👁 View Only
@@ -123,8 +102,7 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
                 page.is_pinned
                   ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
                   : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
-              }`}
-              title={page.is_pinned ? 'Unpin' : 'Pin'}>
+              }`}>
               {page.is_pinned ? <Pin className="w-3 h-3" /> : <PinOff className="w-3 h-3" />}
               <span>{page.is_pinned ? 'Pinned' : 'Pin'}</span>
             </button>
@@ -151,7 +129,7 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
         {/* Editor */}
         <div className={`flex-1 overflow-hidden ${showComments ? 'border-r border-gray-100' : ''}`}>
           <NoteEditor content={content}
-            onChange={viewerMode ? undefined : (html) => { setContent(html); scheduleAutoSave(title, html) }}
+            onChange={viewerMode ? undefined : (html) => { setContent(html); scheduleAutoSave(html) }}
             readOnly={viewerMode} />
         </div>
 
