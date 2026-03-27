@@ -164,3 +164,17 @@
   border-bottom-color: #22c55e;
 }
 .page-title-input::placeholder { color: #d1d5db; }
+
+/* ── Diagram node in editor ─────────────────────────── */
+.diagram-node-wrapper {
+  display: block;
+  width: 100%;
+}
+.ProseMirror .diagram-node-wrapper {
+  cursor: default;
+}
+.ProseMirror-selectednode .diagram-node-wrapper > div {
+  outline: 2px solid #22c55e;
+  outline-offset: 2px;
+  border-radius: 12px;
+}
