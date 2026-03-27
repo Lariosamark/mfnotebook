@@ -9,6 +9,8 @@ export function AppProvider({ children }) {
   const [activePage, setActivePage] = useState(null)
   const [activeView, setActiveView] = useState('notebooks') // notebooks | folders | admin
   const [toast, setToast] = useState(null)
+  // true while sections are being fetched after switching to a different notebook
+  const [notebookSwitching, setNotebookSwitching] = useState(false)
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
@@ -23,6 +25,7 @@ export function AppProvider({ children }) {
       activePage, setActivePage,
       activeView, setActiveView,
       toast, showToast,
+      notebookSwitching, setNotebookSwitching,
     }}>
       {children}
     </AppContext.Provider>

@@ -8,13 +8,20 @@ import { useAuth } from '../../contexts/AuthContext'
 
 /* ─── Page Tabs bar (replaces old PageList + SectionTabs) ─── */
 export function PageTabs({ section, onSelectPage, viewerMode = false }) {
-  const { pages, loading, fetchPages, createPage, updatePage, deletePage } = usePages()
+  const { pages, loading, fetchPages, clearPages, createPage, updatePage, deletePage } = usePages()
   const { activePage, showToast } = useApp()
   const { isAdmin } = useAuth()
   const [deleteId, setDeleteId] = useState(null)
   const [menuPageId, setMenuPageId] = useState(null)
 
-  useEffect(() => { if (section) fetchPages(section.id) }, [section?.id])
+  useEffect(() => {
+    if (section) {
+      fetchPages(section.id)
+    } else {
+      // Section deselected — wipe stale pages so they don't linger
+      clearPages()
+    }
+  }, [section?.id])
 
   if (!section) return null
 

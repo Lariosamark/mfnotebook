@@ -78,19 +78,16 @@ export function useNotebooks() {
 
   // Replace all access entries for a notebook with the new list
   const setNotebookAccess = useCallback(async (notebookId, userIds) => {
-    try {
-      // Delete existing
-      await dbQuery('DELETE FROM mf_notebook_access WHERE notebook_id = $1', [notebookId])
-      // Insert new entries
+    // Delete existing
+    await dbQuery('DELETE FROM mf_notebook_access WHERE notebook_id = $1', [notebookId])
+    // Insert new entries
+    if (userIds.length > 0) {
       for (const uid of userIds) {
         await dbQuery(
           'INSERT INTO mf_notebook_access (notebook_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
           [notebookId, uid]
         )
       }
-    } catch (e) {
-      console.error('setNotebookAccess error:', e)
-      throw e
     }
   }, [])
 
@@ -130,6 +127,7 @@ export function useSections() {
 
   const fetchSections = useCallback(async (notebookId) => {
     if (!notebookId) return
+    setSections([])  // clear stale sections immediately so old data never flashes
     setLoading(true)
     try {
       const rows = await dbQuery(
@@ -178,6 +176,7 @@ export function usePages() {
 
   const fetchPages = useCallback(async (sectionId) => {
     if (!sectionId) return
+    setPages([])   // clear stale pages immediately — no old content flashes
     setLoading(true)
     try {
       const rows = await dbQuery(
@@ -188,6 +187,12 @@ export function usePages() {
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  // Call this when a section is deselected so stale pages don't linger in memory
+  const clearPages = useCallback(() => {
+    setPages([])
+    setLoading(false)
   }, [])
 
   const createPage = async (sectionId, title = 'Untitled Page') => {
@@ -238,5 +243,5 @@ export function usePages() {
     return dbQuery('DELETE FROM mf_page_comments WHERE id = $1', [id])
   }
 
-  return { pages, loading, fetchPages, createPage, updatePage, deletePage, fetchComments, addComment, deleteComment }
+  return { pages, loading, fetchPages, clearPages, createPage, updatePage, deletePage, fetchComments, addComment, deleteComment }
 }

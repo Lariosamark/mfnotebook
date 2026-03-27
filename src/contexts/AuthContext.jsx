@@ -68,33 +68,13 @@ export function AuthProvider({ children }) {
       }
     } else {
       // Supabase mode: SDK restores from its own localStorage cache automatically
-      supabase.auth.getSession().then(({ data: { session }, error }) => {
-        if (error) {
-          console.warn('Session restore failed, clearing session:', error.message)
-          supabase.auth.signOut()
-          setUser(null)
-          setProfile(null)
-          setLoading(false)
-          return
-        }
+      supabase.auth.getSession().then(({ data: { session } }) => {
         setUser(session?.user ?? null)
         fetchProfile(session?.user ?? null).finally(() => setLoading(false))
       })
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'TOKEN_REFRESHED') {
-          setUser(session?.user ?? null)
-          fetchProfile(session?.user ?? null)
-        } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
-          setUser(null)
-          setProfile(null)
-        } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-          setUser(session?.user ?? null)
-          fetchProfile(session?.user ?? null)
-        } else if (!session) {
-          // Covers invalid/expired refresh token — force clean logout
-          setUser(null)
-          setProfile(null)
-        }
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        setUser(session?.user ?? null)
+        fetchProfile(session?.user ?? null)
       })
       return () => subscription.unsubscribe()
     }

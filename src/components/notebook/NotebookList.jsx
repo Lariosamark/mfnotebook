@@ -166,7 +166,7 @@ export default function NotebookList({ onSelectSection }) {
 
 /* ─── Single Notebook Row ───────────────────────────────────── */
 function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete, onAddSection, onManageAccess, menuOpen, onMenuToggle, onMenuClose }) {
-  const { activeSection, activeNotebook, setActiveNotebook } = useApp()
+  const { activeSection, activeNotebook, setActiveNotebook, setActiveSection, setActivePage, setNotebookSwitching } = useApp()
   const { sections, loading: sectionsLoading, fetchSections, createSection, updateSection, deleteSection } = useSections()
   const { showToast } = useApp()
   const { isAdmin } = useAuth()
@@ -178,11 +178,22 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
   const isActiveNb = activeNotebook?.id === nb.id
 
   useEffect(() => {
-    if (expanded) fetchSections(nb.id)
+    if (expanded) {
+      fetchSections(nb.id).finally(() => {
+        // Once sections are loaded, clear the switching state
+        setNotebookSwitching(false)
+      })
+    }
   }, [expanded, nb.id])
 
   const handleNotebookClick = () => {
-    setActiveNotebook(nb)
+    if (!isActiveNb) {
+      // Switching to a different notebook — signal loading and clear stale state
+      setNotebookSwitching(true)
+      setActiveNotebook(nb)
+      setActiveSection(null)
+      setActivePage(null)
+    }
     onToggle()
   }
 
@@ -353,7 +364,6 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
 function NotebookAccessModal({ notebook, onClose, onSaved }) {
   const { users, fetchUsers } = useUsers()
   const { fetchNotebookAccess, setNotebookAccess } = useNotebooks()
-  const { showToast } = useApp()
   const employees = users.filter(u => u.role === 'employee')
 
   const [selected, setSelected] = useState(new Set())
@@ -372,8 +382,7 @@ function NotebookAccessModal({ notebook, onClose, onSaved }) {
     setDirty(false)
     fetchNotebookAccess(notebook.id).then(ids => {
       setSelected(new Set(ids))
-    }).catch(() => setSelected(new Set()))
-      .finally(() => setLoading(false))
+    }).finally(() => setLoading(false))
   }, [notebook?.id])
 
   const toggle = (uid) => {
@@ -392,9 +401,6 @@ function NotebookAccessModal({ notebook, onClose, onSaved }) {
       setDirty(false)
       onSaved()
       onClose()
-    } catch (err) {
-      console.error('Failed to save access:', err)
-      showToast('Failed to save access. Please try again.', 'error')
     } finally {
       setSaving(false)
     }
@@ -723,3 +729,4 @@ export function EmptyState({ label, action, onAction, icon: Icon = BookOpen }) {
     </div>
   )
 }
+

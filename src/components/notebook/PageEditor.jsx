@@ -30,7 +30,16 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
   }, [viewerMode, page?.id])
 
   useEffect(() => {
-    if (page) { setTitle(page.title); setContent(page.content || ''); setSaved(false) }
+    if (page) {
+      setTitle(page.title)
+      setContent(page.content || '')
+      setSaved(false)
+    } else {
+      // page was cleared (e.g. switched notebooks) — reset editor state
+      setTitle('')
+      setContent('')
+      setSaved(false)
+    }
   }, [page?.id])
 
   useEffect(() => {
@@ -141,7 +150,7 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
       <div className="flex flex-1 overflow-hidden">
         {/* Editor */}
         <div className={`flex-1 overflow-hidden ${showComments ? 'border-r border-gray-100' : ''}`}>
-          <NoteEditor key={page.id} content={content}
+          <NoteEditor content={content}
             onChange={viewerMode ? undefined : (html) => { setContent(html); scheduleAutoSave(title, html) }}
             readOnly={viewerMode} />
         </div>
