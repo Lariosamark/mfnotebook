@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -19,12 +19,12 @@ const COLORS = ['#111827','#15803d','#1d4ed8','#dc2626','#d97706','#7c3aed','#08
 export default function NoteEditor({ content, onChange, readOnly = false }) {
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ underline: false, link: false }),
       Underline,
       TextStyle,
       Color,
       Image.configure({ inline: false, allowBase64: true }),
-      Link.configure({ openOnClick: false }),
+      Link.configure({ openOnClick: false, autolink: true }),
       Placeholder.configure({ placeholder: 'Start typing your note…' }),
     ],
     content: content || '',
@@ -32,11 +32,7 @@ export default function NoteEditor({ content, onChange, readOnly = false }) {
     onUpdate: ({ editor }) => onChange?.(editor.getHTML()),
   })
 
-  useEffect(() => {
-    if (editor && content !== editor.getHTML()) {
-      editor.commands.setContent(content || '', false)
-    }
-  }, [content])
+  // Content is set via key={page.id} remount in PageEditor — no effect needed here
 
   if (!editor) return null
 

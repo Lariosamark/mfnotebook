@@ -5,10 +5,13 @@ import { useApp } from '../../contexts/AppContext'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   Plus, BookOpen, Trash2, Pencil, MoreHorizontal,
-  BookMarked, ChevronRight, ChevronDown, Hash, Loader2, Eye
+  BookMarked, ChevronRight, ChevronDown, Loader2, Eye,
+  Users, UserCheck, UserX, Globe, Save, Lock, Search,
+  CheckCircle2
 } from 'lucide-react'
 import { Modal, ConfirmModal, Skeleton } from '../ui/Toast'
 import { SECTION_COLORS, formatDate } from '../../lib/utils'
+import { useUsers } from '../../hooks/useFolders'
 
 const PALETTE = [
   '#15803d','#16a34a','#22c55e','#4ade80',
@@ -22,14 +25,15 @@ export default function NotebookList({ onSelectSection }) {
   const { profile, isAdmin } = useAuth()
   const { activeNotebook, setActiveNotebook, activeSection, showToast } = useApp()
 
-  const [expanded, setExpanded] = useState({})
+  const [expanded, setExpanded]           = useState({})
   const [sharedNotebooks, setSharedNotebooks] = useState([])
-  const [sharedExpanded, setSharedExpanded] = useState({})
-  const [createOpen, setCreateOpen] = useState(false)
-  const [editNotebook, setEditNotebook] = useState(null)
-  const [deleteId, setDeleteId] = useState(null)
-  const [menuId, setMenuId] = useState(null)
+  const [sharedExpanded, setSharedExpanded]   = useState({})
+  const [createOpen, setCreateOpen]       = useState(false)
+  const [editNotebook, setEditNotebook]   = useState(null)
+  const [deleteId, setDeleteId]           = useState(null)
+  const [menuId, setMenuId]               = useState(null)
   const [addSectionFor, setAddSectionFor] = useState(null)
+  const [accessNotebook, setAccessNotebook] = useState(null) // notebook to manage access for
 
   useEffect(() => {
     if (profile) {
@@ -42,7 +46,6 @@ export default function NotebookList({ onSelectSection }) {
     }
   }, [profile])
 
-  // Auto-expand active notebook
   useEffect(() => {
     if (activeNotebook) {
       setExpanded(prev => ({ ...prev, [activeNotebook.id]: true }))
@@ -57,10 +60,6 @@ export default function NotebookList({ onSelectSection }) {
       setExpanded(prev => ({ ...prev, [nb.id]: true }))
       showToast('Notebook created')
     } catch (e) { showToast(e.message, 'error') }
-  }
-
-  const toggleExpand = (nbId) => {
-    setExpanded(prev => ({ ...prev, [nbId]: !prev[nbId] }))
   }
 
   return (
@@ -98,6 +97,7 @@ export default function NotebookList({ onSelectSection }) {
                   onEdit={() => { setEditNotebook(nb); setMenuId(null) }}
                   onDelete={() => { setDeleteId(nb.id); setMenuId(null) }}
                   onAddSection={() => { setAddSectionFor(nb.id); setMenuId(null) }}
+                  onManageAccess={() => { setAccessNotebook(nb); setMenuId(null) }}
                   menuOpen={menuId === nb.id}
                   onMenuToggle={() => setMenuId(menuId === nb.id ? null : nb.id)}
                   onMenuClose={() => setMenuId(null)}
@@ -139,7 +139,6 @@ export default function NotebookList({ onSelectSection }) {
         onConfirm={async () => { await deleteNotebook(deleteId); showToast('Deleted') }}
         title="Delete Notebook" message="All sections and pages inside will be permanently deleted." danger />
 
-      {/* Add Section inline modal */}
       {addSectionFor && (
         <AddSectionModal
           notebookId={addSectionFor}
@@ -152,23 +151,32 @@ export default function NotebookList({ onSelectSection }) {
           }}
         />
       )}
+
+      {/* Access Management Modal */}
+      {accessNotebook && (
+        <NotebookAccessModal
+          notebook={accessNotebook}
+          onClose={() => setAccessNotebook(null)}
+          onSaved={() => showToast('Access updated')}
+        />
+      )}
     </div>
   )
 }
 
-/* ─── Single Notebook Row with expandable Sections ─────────── */
-function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete, onAddSection, menuOpen, onMenuToggle, onMenuClose }) {
+/* ─── Single Notebook Row ───────────────────────────────────── */
+function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete, onAddSection, onManageAccess, menuOpen, onMenuToggle, onMenuClose }) {
   const { activeSection, activeNotebook, setActiveNotebook } = useApp()
   const { sections, loading: sectionsLoading, fetchSections, createSection, updateSection, deleteSection } = useSections()
   const { showToast } = useApp()
+  const { isAdmin } = useAuth()
 
-  const [editSection, setEditSection] = useState(null)
+  const [editSection, setEditSection]       = useState(null)
   const [deleteSectionId, setDeleteSectionId] = useState(null)
-  const [sectionMenuId, setSectionMenuId] = useState(null)
+  const [sectionMenuId, setSectionMenuId]   = useState(null)
 
   const isActiveNb = activeNotebook?.id === nb.id
 
-  // Fetch sections when expanded
   useEffect(() => {
     if (expanded) fetchSections(nb.id)
   }, [expanded, nb.id])
@@ -189,17 +197,12 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
         }`}
         onClick={handleNotebookClick}
       >
-        {/* Expand chevron */}
         <span className="text-gray-400 flex-shrink-0 w-4 flex items-center justify-center">
-          {expanded
-            ? <ChevronDown className="w-3 h-3" />
-            : <ChevronRight className="w-3 h-3" />}
+          {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         </span>
 
-        {/* Color dot */}
         <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: nb.color }} />
 
-        {/* Title */}
         <span className={`flex-1 text-sm truncate font-medium ${isActiveNb ? 'text-gray-900' : 'text-gray-600'}`}>
           {nb.title}
         </span>
@@ -216,16 +219,29 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); onMenuClose() }} />
-              <div className="absolute right-2 top-7 w-40 bg-white border border-gray-200 rounded-xl shadow-lifted z-50 animate-scale-in overflow-hidden">
+              <div className="absolute right-2 top-7 w-44 bg-white border border-gray-200 rounded-xl shadow-lifted z-50 animate-scale-in overflow-hidden">
                 <button onClick={(e) => { e.stopPropagation(); onAddSection() }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-brand-50 hover:text-brand-700 font-medium transition-colors">
                   <Plus className="w-3.5 h-3.5 text-brand-500" /> Add Section
                 </button>
+
                 <div className="h-px bg-gray-100 mx-2" />
+
                 <button onClick={(e) => { e.stopPropagation(); onEdit() }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 font-medium transition-colors">
                   <Pencil className="w-3.5 h-3.5 text-gray-400" /> Rename
                 </button>
+
+                {/* Manage Access — admin only */}
+                {isAdmin && (
+                  <button onClick={(e) => { e.stopPropagation(); onManageAccess() }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-purple-600 hover:bg-purple-50 font-medium transition-colors">
+                    <Users className="w-3.5 h-3.5 text-purple-500" /> Manage Access
+                  </button>
+                )}
+
+                <div className="h-px bg-gray-100 mx-2" />
+
                 <button onClick={(e) => { e.stopPropagation(); onDelete() }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-500 hover:bg-red-50 font-medium transition-colors">
                   <Trash2 className="w-3.5 h-3.5" /> Delete
@@ -236,7 +252,7 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
         </div>
       </div>
 
-      {/* Sections — inline accordion */}
+      {/* Sections */}
       {expanded && (
         <div className="ml-6 mr-1.5 mb-1 animate-slide-up">
           {sectionsLoading
@@ -272,7 +288,6 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
                           {s.title}
                         </span>
 
-                        {/* Section 3-dot */}
                         <div
                           className="opacity-0 group-hover/sec:opacity-100 flex-shrink-0"
                           onClick={(e) => { e.stopPropagation(); setSectionMenuId(sectionMenuId === s.id ? null : s.id) }}
@@ -300,7 +315,6 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
                     )
                   })}
 
-                  {/* Add section below last section */}
                   <button
                     onClick={(e) => { e.stopPropagation(); onAddSection() }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors font-medium mt-0.5"
@@ -313,7 +327,6 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
         </div>
       )}
 
-      {/* Edit section modal */}
       {editSection && (
         <SectionFormModal
           open
@@ -336,7 +349,197 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
   )
 }
 
-/* ─── Add Section Modal (standalone, by notebookId) ──────── */
+/* ─── Notebook Access Modal ─────────────────────────────────── */
+function NotebookAccessModal({ notebook, onClose, onSaved }) {
+  const { users, fetchUsers } = useUsers()
+  const { fetchNotebookAccess, setNotebookAccess } = useNotebooks()
+  const { showToast } = useApp()
+  const employees = users.filter(u => u.role === 'employee')
+
+  const [selected, setSelected] = useState(new Set())
+  const [loading, setLoading]   = useState(true)
+  const [saving, setSaving]     = useState(false)
+  const [dirty, setDirty]       = useState(false)
+  const [search, setSearch]     = useState('')
+
+  useEffect(() => {
+    fetchUsers()
+  }, [])
+
+  useEffect(() => {
+    if (!notebook) return
+    setLoading(true)
+    setDirty(false)
+    fetchNotebookAccess(notebook.id).then(ids => {
+      setSelected(new Set(ids))
+    }).catch(() => setSelected(new Set()))
+      .finally(() => setLoading(false))
+  }, [notebook?.id])
+
+  const toggle = (uid) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(uid) ? next.delete(uid) : next.add(uid)
+      return next
+    })
+    setDirty(true)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await setNotebookAccess(notebook.id, [...selected])
+      setDirty(false)
+      onSaved()
+      onClose()
+    } catch (err) {
+      console.error('Failed to save access:', err)
+      showToast('Failed to save access. Please try again.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const filtered = employees.filter(e =>
+    e.full_name.toLowerCase().includes(search.toLowerCase()) ||
+    e.email.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const selectedCount = [...selected].filter(id => employees.some(e => e.id === id)).length
+
+  return (
+    <Modal open onClose={onClose} title="Manage Notebook Access" size="md">
+      {/* Notebook info */}
+      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 mb-5 -mt-1">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-lg"
+          style={{ backgroundColor: notebook.color + '20', border: `1px solid ${notebook.color}40` }}>
+          {notebook.emoji || '📓'}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-800 truncate">{notebook.title}</p>
+          <p className="text-xs text-gray-400">Choose which employees can view this notebook</p>
+        </div>
+        <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium border flex-shrink-0 ${
+          selectedCount > 0
+            ? 'bg-brand-50 text-brand-700 border-brand-200'
+            : 'bg-gray-100 text-gray-500 border-gray-200'
+        }`}>
+          {selectedCount > 0
+            ? <><UserCheck className="w-3 h-3" />{selectedCount} selected</>
+            : <><Lock className="w-3 h-3" />Private</>
+          }
+        </div>
+      </div>
+
+      {/* Search + quick actions */}
+      <div className="flex items-center gap-2 mb-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search employees…"
+            className="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-4 py-2 text-sm text-gray-700 placeholder-gray-400 outline-none focus:border-brand-400 transition-colors" />
+        </div>
+        <button onClick={() => { setSelected(new Set(employees.map(e => e.id))); setDirty(true) }}
+          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 font-medium transition-colors whitespace-nowrap">
+          <Globe className="w-3.5 h-3.5" />All
+        </button>
+        <button onClick={() => { setSelected(new Set()); setDirty(true) }}
+          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 font-medium transition-colors whitespace-nowrap">
+          <UserX className="w-3.5 h-3.5" />None
+        </button>
+      </div>
+
+      {/* Employee list */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden mb-4" style={{ maxHeight: '280px', overflowY: 'auto' }}>
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center py-10 text-center">
+            <Users className="w-8 h-8 text-gray-200 mb-2" />
+            <p className="text-gray-500 text-sm font-medium">
+              {search ? 'No employees match your search' : 'No employees in the system'}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {filtered.map((emp) => {
+              const isSelected = selected.has(emp.id)
+              return (
+                <div
+                  key={emp.id}
+                  onClick={() => toggle(emp.id)}
+                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors select-none ${
+                    isSelected ? 'bg-brand-50/70 hover:bg-brand-50' : 'hover:bg-gray-50 bg-white'
+                  }`}
+                >
+                  {/* Checkbox */}
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                    isSelected
+                      ? 'bg-brand-600 border-brand-600'
+                      : 'border-gray-300 bg-white'
+                  }`}>
+                    {isSelected && (
+                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12">
+                        <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </div>
+
+                  {/* Avatar */}
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                    isSelected ? 'bg-brand-600 text-white' : 'bg-gray-200 text-gray-600'
+                  }`}>
+                    {emp.full_name?.charAt(0).toUpperCase()}
+                  </div>
+
+                  {/* Name + email */}
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium truncate ${isSelected ? 'text-brand-800' : 'text-gray-800'}`}>
+                      {emp.full_name}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">{emp.email}</p>
+                  </div>
+
+                  {/* Can view badge */}
+                  {isSelected && (
+                    <span className="flex items-center gap-1 text-xs text-brand-600 font-medium bg-brand-100 px-2 py-0.5 rounded-full flex-shrink-0">
+                      <Eye className="w-3 h-3" />Can view
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 text-xs">
+          {dirty
+            ? <span className="text-amber-600 font-medium">⚠ You have unsaved changes</span>
+            : selectedCount > 0
+              ? <span className="text-brand-600 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{selectedCount} employee{selectedCount !== 1 ? 's' : ''} can view</span>
+              : <span className="text-gray-400">Notebook is private — no employees selected</span>
+          }
+        </div>
+        <button onClick={onClose}
+          className="px-4 py-2.5 text-sm font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors">
+          Cancel
+        </button>
+        <button onClick={handleSave} disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? 'Saving…' : 'Save Access'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+/* ─── Add Section Modal ───────────────────────────────────── */
 function AddSectionModal({ notebookId, onClose, onCreated }) {
   const { createSection } = useSections()
   const [title, setTitle] = useState('')
@@ -379,7 +582,7 @@ function AddSectionModal({ notebookId, onClose, onCreated }) {
   )
 }
 
-/* ─── Section Form Modal (edit) ───────────────────────────── */
+/* ─── Section Form Modal ──────────────────────────────────── */
 function SectionFormModal({ open, onClose, onSave, initialData }) {
   const [title, setTitle] = useState(initialData?.title || '')
   const [color, setColor] = useState(initialData?.color || PALETTE[0])

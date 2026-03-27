@@ -13,7 +13,7 @@ import {
   Send, X, Loader2, AlertTriangle, CheckCircle2,
   ChevronDown, ChevronRight, Folder, FolderOpen,
   Image as ImageIcon, Eye, Grid3x3, List, MapPin,
-  FileText, Hash, Building2, Upload, Plus
+  FileText, Building2, Plus
 } from 'lucide-react'
 import { formatDate, formatRelative } from '../lib/utils'
 

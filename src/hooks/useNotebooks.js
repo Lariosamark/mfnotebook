@@ -41,20 +41,56 @@ export function useNotebooks() {
     }
   }, [])
 
-  // Fetch only admin-created notebooks (for employees to view as read-only)
+  // Fetch admin notebooks the current user has been granted access to
   const fetchAdminNotebooks = useCallback(async () => {
+    if (!profile) return []
     try {
       const rows = await dbQuery(
         `SELECT n.*, u.full_name as owner_name, u.email as owner_email
          FROM mf_notebooks n
          JOIN mf_users u ON u.id = n.user_id
+         JOIN mf_notebook_access a ON a.notebook_id = n.id
          WHERE u.role = 'admin'
-         ORDER BY n.updated_at DESC`
+           AND a.user_id = $1
+         ORDER BY n.updated_at DESC`,
+        [profile.id]
       )
       return rows
     } catch (e) {
       console.error(e)
       return []
+    }
+  }, [profile])
+
+  // Fetch which user_ids have access to a specific notebook
+  const fetchNotebookAccess = useCallback(async (notebookId) => {
+    try {
+      const rows = await dbQuery(
+        'SELECT user_id FROM mf_notebook_access WHERE notebook_id = $1',
+        [notebookId]
+      )
+      return rows.map(r => r.user_id)
+    } catch (e) {
+      console.error(e)
+      return []
+    }
+  }, [])
+
+  // Replace all access entries for a notebook with the new list
+  const setNotebookAccess = useCallback(async (notebookId, userIds) => {
+    try {
+      // Delete existing
+      await dbQuery('DELETE FROM mf_notebook_access WHERE notebook_id = $1', [notebookId])
+      // Insert new entries
+      for (const uid of userIds) {
+        await dbQuery(
+          'INSERT INTO mf_notebook_access (notebook_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [notebookId, uid]
+        )
+      }
+    } catch (e) {
+      console.error('setNotebookAccess error:', e)
+      throw e
     }
   }, [])
 
@@ -85,7 +121,7 @@ export function useNotebooks() {
     setNotebooks((prev) => prev.filter((n) => n.id !== id))
   }
 
-  return { notebooks, loading, fetchNotebooks, fetchAllNotebooks, fetchAdminNotebooks, createNotebook, updateNotebook, deleteNotebook }
+  return { notebooks, loading, fetchNotebooks, fetchAllNotebooks, fetchAdminNotebooks, fetchNotebookAccess, setNotebookAccess, createNotebook, updateNotebook, deleteNotebook }
 }
 
 export function useSections() {

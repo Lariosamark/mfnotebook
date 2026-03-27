@@ -85,13 +85,24 @@ CREATE TABLE IF NOT EXISTS mf_site_images (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Notebook Access Control (which employees can see which admin notebooks)
+CREATE TABLE IF NOT EXISTS mf_notebook_access (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  notebook_id UUID NOT NULL REFERENCES mf_notebooks(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES mf_users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(notebook_id, user_id)
+);
+
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_notebooks_user     ON mf_notebooks(user_id);
-CREATE INDEX IF NOT EXISTS idx_sections_notebook  ON mf_sections(notebook_id);
-CREATE INDEX IF NOT EXISTS idx_pages_section      ON mf_pages(section_id);
-CREATE INDEX IF NOT EXISTS idx_comments_page      ON mf_page_comments(page_id);
-CREATE INDEX IF NOT EXISTS idx_site_folders_user  ON mf_site_folders(user_id);
-CREATE INDEX IF NOT EXISTS idx_site_images_folder ON mf_site_images(folder_id);
+CREATE INDEX IF NOT EXISTS idx_notebooks_user       ON mf_notebooks(user_id);
+CREATE INDEX IF NOT EXISTS idx_sections_notebook    ON mf_sections(notebook_id);
+CREATE INDEX IF NOT EXISTS idx_pages_section        ON mf_pages(section_id);
+CREATE INDEX IF NOT EXISTS idx_comments_page        ON mf_page_comments(page_id);
+CREATE INDEX IF NOT EXISTS idx_site_folders_user    ON mf_site_folders(user_id);
+CREATE INDEX IF NOT EXISTS idx_site_images_folder   ON mf_site_images(folder_id);
+CREATE INDEX IF NOT EXISTS idx_notebook_access_nb   ON mf_notebook_access(notebook_id);
+CREATE INDEX IF NOT EXISTS idx_notebook_access_user ON mf_notebook_access(user_id);
 
 -- ============================================================
 -- After creating your first user via the app, run this to
