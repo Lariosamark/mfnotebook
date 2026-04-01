@@ -48,6 +48,7 @@ function loadStore() {
     mf_page_comments: [],
     mf_site_folders: [],
     mf_site_images: [],
+    mf_notebook_access: [],
   }
 }
 
@@ -257,6 +258,40 @@ const localDB = {
     saveStore(store)
   },
 
+  // mf_notebook_access ───────────────────────────────────────────────────────
+  getNotebookAccess(notebookId) {
+    const store = loadStore()
+    if (!store.mf_notebook_access) store.mf_notebook_access = []
+    return store.mf_notebook_access
+      .filter((a) => a.notebook_id === notebookId)
+      .map((a) => ({ user_id: a.user_id }))
+  },
+  getSharedNotebooks(userId) {
+    const store = loadStore()
+    if (!store.mf_notebook_access) store.mf_notebook_access = []
+    const accessedIds = store.mf_notebook_access
+      .filter((a) => a.user_id === userId)
+      .map((a) => a.notebook_id)
+    return store.mf_notebooks
+      .filter((n) => accessedIds.includes(n.id) && n.user_id !== userId)
+      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+      .map((n) => {
+        const owner = store.mf_users.find((u) => u.id === n.user_id) || {}
+        return { ...n, owner_name: owner.full_name || '', owner_email: owner.email || '' }
+      })
+  },
+  setNotebookAccess(notebookId, userIds) {
+    const store = loadStore()
+    if (!store.mf_notebook_access) store.mf_notebook_access = []
+    // Remove existing access for this notebook
+    store.mf_notebook_access = store.mf_notebook_access.filter((a) => a.notebook_id !== notebookId)
+    // Add new entries
+    for (const uid of userIds) {
+      store.mf_notebook_access.push({ id: uuid(), notebook_id: notebookId, user_id: uid, created_at: now() })
+    }
+    saveStore(store)
+  },
+
   // mf_site_images ───────────────────────────────────────────────────────────
   getImages(folderId) {
     const store = loadStore()
@@ -408,6 +443,22 @@ export async function dbQuery(query, params = []) {
   }
   if (q.startsWith('DELETE FROM mf_site_folders')) {
     localDB.deleteFolder(params[0])
+    return []
+  }
+
+  // mf_notebook_access
+  if (q.includes('mf_notebook_access') && q.includes('WHERE notebook_id')) {
+    return localDB.getNotebookAccess(params[0])
+  }
+  if (q.includes('mf_notebook_access') && q.includes('WHERE n.user_id != $1')) {
+    return localDB.getSharedNotebooks(params[0])
+  }
+  if (q.startsWith('DELETE FROM mf_notebook_access')) {
+    // Handled atomically inside setNotebookAccess localDB method
+    return []
+  }
+  if (q.startsWith('INSERT INTO mf_notebook_access')) {
+    // Handled atomically inside setNotebookAccess localDB method
     return []
   }
 

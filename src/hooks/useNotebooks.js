@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { dbQuery } from '../lib/neon'
+import { dbQuery, localDB, IS_LOCAL_MODE } from '../lib/neon'
 import { useAuth } from '../contexts/AuthContext'
 
 export function useNotebooks() {
@@ -41,16 +41,19 @@ export function useNotebooks() {
     }
   }, [])
 
-  // Fetch admin notebooks the current user has been granted access to
+  // Fetch notebooks shared with the current user (by anyone — admin or teammate)
   const fetchAdminNotebooks = useCallback(async () => {
     if (!profile) return []
     try {
+      if (IS_LOCAL_MODE) {
+        return localDB.getSharedNotebooks(profile.id)
+      }
       const rows = await dbQuery(
         `SELECT n.*, u.full_name as owner_name, u.email as owner_email
          FROM mf_notebooks n
          JOIN mf_users u ON u.id = n.user_id
          JOIN mf_notebook_access a ON a.notebook_id = n.id
-         WHERE u.role = 'admin'
+         WHERE n.user_id != $1
            AND a.user_id = $1
          ORDER BY n.updated_at DESC`,
         [profile.id]
@@ -65,6 +68,9 @@ export function useNotebooks() {
   // Fetch which user_ids have access to a specific notebook
   const fetchNotebookAccess = useCallback(async (notebookId) => {
     try {
+      if (IS_LOCAL_MODE) {
+        return localDB.getNotebookAccess(notebookId).map(r => r.user_id)
+      }
       const rows = await dbQuery(
         'SELECT user_id FROM mf_notebook_access WHERE notebook_id = $1',
         [notebookId]
@@ -78,9 +84,13 @@ export function useNotebooks() {
 
   // Replace all access entries for a notebook with the new list
   const setNotebookAccess = useCallback(async (notebookId, userIds) => {
-    // Delete existing
+    if (IS_LOCAL_MODE) {
+      // Local mode: use atomic localDB method directly
+      localDB.setNotebookAccess(notebookId, userIds)
+      return
+    }
+    // Neon mode: delete then re-insert
     await dbQuery('DELETE FROM mf_notebook_access WHERE notebook_id = $1', [notebookId])
-    // Insert new entries
     if (userIds.length > 0) {
       for (const uid of userIds) {
         await dbQuery(

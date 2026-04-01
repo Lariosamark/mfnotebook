@@ -37,10 +37,9 @@ export function PageTabs({ section, onSelectPage, viewerMode = false }) {
       <div className="flex items-center border-b border-gray-200 bg-white overflow-x-auto flex-shrink-0"
         style={{ minHeight: '38px' }}>
 
-        {/* Section color pill */}
-        <div className="flex items-center gap-1.5 px-3 border-r border-gray-200 flex-shrink-0 h-full">
-          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: section.color }} />
-          <span className="text-xs font-semibold text-gray-600 whitespace-nowrap">{section.title}</span>
+        {/* Section color dot only — title is shown in browser tab, not here */}
+        <div className="flex items-center px-3 border-r border-gray-200 flex-shrink-0 h-full">
+          <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: section.color }} />
         </div>
 
         {/* Page tabs */}

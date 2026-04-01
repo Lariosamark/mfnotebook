@@ -9,7 +9,7 @@ import NoteEditor from '../components/notebook/NoteEditor'
 import { dbQuery } from '../lib/neon'
 import {
   Shield, Users, Trash2, Mail,
-  Crown, User, Search, MessageSquare,
+  Crown, User, MessageSquare,
   Send, X, Loader2, AlertTriangle,
   ChevronDown, ChevronRight, Folder, FolderOpen,
   Image as ImageIcon, Eye, Grid3x3, List, MapPin,
@@ -19,21 +19,17 @@ import { formatDate, formatRelative } from '../lib/utils'
 
 export default function AdminPage() {
   const { profile, isAdmin } = useAuth()
-  const { showToast } = useApp()
+  const { showToast, activeAdminTab, setActiveAdminTab, adminSelectedUser, setAdminSelectedUser, setSidebarOpen } = useApp()
   const { users, loading: loadingUsers, fetchUsers, updateUser, deleteUser } = useUsers()
-  const { notebooks, fetchAllNotebooks } = useNotebooks()
+  const { notebooks, loading: loadingNotebooks, fetchAllNotebooks } = useNotebooks()
   const { pages, fetchPages, updatePage, deletePage, fetchComments, addComment, deleteComment } = usePages()
-  const { folders, fetchFolders, fetchImages } = useFolders()
+  const { folders, loading: loadingFolders, fetchFolders, fetchImages } = useFolders()
 
-  const [activeTab, setActiveTab]           = useState('overview')
-  const [selectedUser, setSelectedUser]     = useState(null)
   const [userDetailTab, setUserDetailTab]   = useState('notebooks')
   const [selectedPage, setSelectedPage]     = useState(null)
   const [selectedFolder, setSelectedFolder] = useState(null)
   const [comments, setComments]             = useState([])
   const [commentText, setCommentText]       = useState('')
-  const [search, setSearch]                 = useState('')
-  const [roleFilter, setRoleFilter]         = useState('all')
   const [deleteUserId, setDeleteUserId]     = useState(null)
   const [deletePageId, setDeletePageId]     = useState(null)
   const [loadingComments, setLoadingComments] = useState(false)
@@ -41,7 +37,9 @@ export default function AdminPage() {
   const [nbSections, setNbSections]         = useState({})
   const [loadingSections, setLoadingSections] = useState({})
 
-  useEffect(() => { fetchUsers(); fetchAllNotebooks(); fetchFolders() }, [])
+  useEffect(() => {
+    if (profile) { fetchUsers(); fetchAllNotebooks(); fetchFolders() }
+  }, [profile?.id])
 
   useEffect(() => {
     if (!selectedPage) return
@@ -56,10 +54,7 @@ export default function AdminPage() {
     if (!isOpen && !nbSections[nb.id]) {
       setLoadingSections(prev => ({ ...prev, [nb.id]: true }))
       try {
-        const rows = await dbQuery(
-          'SELECT * FROM mf_sections WHERE notebook_id = $1 ORDER BY sort_order, created_at',
-          [nb.id]
-        )
+        const rows = await dbQuery('SELECT * FROM mf_sections WHERE notebook_id = $1 ORDER BY sort_order, created_at', [nb.id])
         setNbSections(prev => ({ ...prev, [nb.id]: rows }))
       } finally {
         setLoadingSections(prev => ({ ...prev, [nb.id]: false }))
@@ -88,21 +83,15 @@ export default function AdminPage() {
 
   const handleDeleteUser = async () => {
     await deleteUser(deleteUserId)
-    if (selectedUser?.id === deleteUserId) setSelectedUser(null)
+    if (adminSelectedUser?.id === deleteUserId) setAdminSelectedUser(null)
     showToast('User removed')
+    await fetchUsers()
   }
 
   const handleRoleChange = async (userId, role) => {
     await updateUser(userId, { role })
     showToast(`Role updated to ${role}`)
-  }
-
-  const handleSelectUser = (u) => {
-    setSelectedUser(u)
-    setSelectedPage(null)
-    setSelectedFolder(null)
-    setUserDetailTab('notebooks')
-    setActiveTab('users')
+    await fetchUsers()
   }
 
   if (!isAdmin) return (
@@ -113,114 +102,40 @@ export default function AdminPage() {
     </div>
   )
 
-  const filteredUsers = users.filter((u) => {
-    const q = search.toLowerCase()
-    return (u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)) &&
-      (roleFilter === 'all' || u.role === roleFilter)
-  })
-
-  const userNotebooks = selectedUser ? notebooks.filter(n => n.user_id === selectedUser.id) : []
-  const userFolders   = selectedUser ? folders.filter(f => f.user_id === selectedUser.id) : []
-  const adminCount    = users.filter(u => u.role === 'admin').length
-  const employeeCount = users.filter(u => u.role === 'employee').length
+  const userNotebooks = adminSelectedUser ? notebooks.filter(n => n.user_id === adminSelectedUser.id) : []
+  const userFolders   = adminSelectedUser ? folders.filter(f => f.user_id === adminSelectedUser.id) : []
 
   return (
-    <div className="flex h-full overflow-hidden bg-[#f7f8fc]">
+    <div className="flex flex-col h-full overflow-hidden bg-[#f7f8fc]">
 
-      {/* SIDEBAR */}
-      <aside className="w-60 flex-shrink-0 border-r border-gray-200 flex flex-col bg-white shadow-sm">
-        <div className="px-4 pt-5 pb-4 border-b border-gray-100">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
-              <Shield className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <h2 className="font-bold text-gray-900 text-sm tracking-tight">Admin Panel</h2>
-              <p className="text-xs text-gray-400">System oversight</p>
-            </div>
-          </div>
-        </div>
-
-        <nav className="px-2 pt-3 space-y-0.5">
-          {[
-            { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-            { id: 'users',    label: 'Users',    icon: Users, badge: users.length },
-          ].map(({ id, label, icon: Icon, badge }) => (
-            <button key={id}
-              onClick={() => { setActiveTab(id); if (id === 'overview') { setSelectedUser(null); setSelectedPage(null); setSelectedFolder(null) } }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
-                activeTab === id
-                  ? 'bg-violet-50 text-violet-700 border border-violet-200'
-                  : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
-              }`}>
-              <Icon className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1 text-left">{label}</span>
-              {badge !== undefined && (
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  activeTab === id ? 'bg-violet-100 text-violet-600' : 'bg-gray-100 text-gray-500'
-                }`}>{badge}</span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        <div className="px-3 mt-4">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">Quick Stats</p>
-          <div className="space-y-1">
-            <StatRow icon={<BookOpen className="w-3.5 h-3.5 text-blue-500"/>}  label="Notebooks"    value={notebooks.length} />
-            <StatRow icon={<Folder className="w-3.5 h-3.5 text-amber-500"/>}   label="Site Folders" value={folders.length} />
-            <StatRow icon={<Crown className="w-3.5 h-3.5 text-violet-500"/>}   label="Admins"       value={adminCount} />
-            <StatRow icon={<User className="w-3.5 h-3.5 text-emerald-500"/>}   label="Employees"    value={employeeCount} />
-          </div>
-        </div>
-
-        {activeTab === 'users' && (
-          <div className="flex-1 overflow-hidden flex flex-col mt-4 border-t border-gray-100">
-            <div className="px-3 pt-3 pb-2 space-y-2">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users…"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-gray-800 placeholder-gray-400 outline-none focus:border-violet-400" />
-              </div>
-              <div className="flex gap-1">
-                {['all','admin','employee'].map(r => (
-                  <button key={r} onClick={() => setRoleFilter(r)}
-                    className={`flex-1 py-1 text-xs rounded-lg transition-colors capitalize font-medium ${
-                      roleFilter === r ? 'bg-violet-100 text-violet-600 border border-violet-200' : 'bg-gray-100 text-gray-400 hover:text-gray-700'
-                    }`}>{r}</button>
-                ))}
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
-              {loadingUsers
-                ? Array.from({length:4}).map((_,i) => <div key={i} className="h-12 bg-gray-100 rounded-xl animate-pulse mx-1" />)
-                : filteredUsers.map(u => (
-                    <UserListItem key={u.id} user={u} active={selectedUser?.id === u.id}
-                      onClick={() => handleSelectUser(u)}
-                      onRoleChange={handleRoleChange} onDelete={() => setDeleteUserId(u.id)} />
-                  ))
-              }
-            </div>
-          </div>
+      {/* Mobile top bar */}
+      <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-gray-200 bg-white flex-shrink-0">
+        <button onClick={() => setSidebarOpen(true)}
+          className="flex items-center gap-2 text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-3 py-1.5 rounded-xl transition-colors">
+          <Shield className="w-3.5 h-3.5" /> Admin
+        </button>
+        {adminSelectedUser && (
+          <span className="text-xs text-gray-500 truncate">{adminSelectedUser.full_name}</span>
         )}
-      </aside>
+      </div>
 
-      {/* MAIN */}
       <main className="flex-1 overflow-hidden flex flex-col min-w-0">
-        {activeTab === 'overview' && (
-          <OverviewPanel users={users} notebooks={notebooks} folders={folders} onSelectUser={handleSelectUser} />
+        {activeAdminTab === 'overview' && (
+          <OverviewPanel users={users} notebooks={notebooks} folders={folders}
+            loading={loadingUsers || loadingNotebooks || loadingFolders}
+            onSelectUser={u => { setAdminSelectedUser(u); setActiveAdminTab('users') }} />
         )}
-        {activeTab === 'users' && !selectedUser && (
+        {activeAdminTab === 'users' && !adminSelectedUser && (
           <EmptyState icon={<Users className="w-8 h-8 text-gray-300"/>}
-            title="Select a user" sub="Click any user to view their notebooks and site folders" />
+            title="Select a user" sub="Click any user in the sidebar to view their content" />
         )}
-        {activeTab === 'users' && selectedUser && !selectedPage && !selectedFolder && (
+        {activeAdminTab === 'users' && adminSelectedUser && !selectedPage && !selectedFolder && (
           <UserDetailPanel
-            user={selectedUser} notebooks={userNotebooks} folders={userFolders}
+            user={adminSelectedUser} notebooks={userNotebooks} folders={userFolders}
             tab={userDetailTab} onTabChange={setUserDetailTab}
             onSelectPage={p => { setSelectedPage(p); setSelectedFolder(null) }}
             onSelectFolder={f => { setSelectedFolder(f); setSelectedPage(null) }}
-            onRoleChange={handleRoleChange} onDelete={() => setDeleteUserId(selectedUser.id)}
+            onRoleChange={handleRoleChange} onDelete={() => setDeleteUserId(adminSelectedUser.id)}
             nbExpanded={nbExpanded} nbSections={nbSections} loadingSections={loadingSections}
             onToggleNotebook={toggleNotebook}
           />
@@ -249,47 +164,83 @@ export default function AdminPage() {
 }
 
 /* ── OVERVIEW ── */
-function OverviewPanel({ users, notebooks, folders, onSelectUser }) {
+function OverviewPanel({ users, notebooks, folders, loading, onSelectUser }) {
   const admins    = users.filter(u => u.role === 'admin')
   const employees = users.filter(u => u.role === 'employee')
   const recentUsers = [...users].sort((a,b) => new Date(b.created_at)-new Date(a.created_at)).slice(0,5)
+
+  const StatSkeleton = () => (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 animate-pulse">
+      <div className="w-8 h-8 bg-gray-200 rounded-xl mb-3" />
+      <div className="h-7 w-12 bg-gray-200 rounded mb-1" />
+      <div className="h-3 w-20 bg-gray-100 rounded" />
+    </div>
+  )
+
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div className="h-full overflow-y-auto p-4 sm:p-6">
       <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+        <div className="mb-5">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
           <p className="text-gray-400 text-sm mt-0.5">System overview and quick access</p>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <BigStatCard icon={<Users className="w-5 h-5"/>}    label="Total Users"  value={users.length}     color="violet" />
-          <BigStatCard icon={<BookOpen className="w-5 h-5"/>} label="Notebooks"    value={notebooks.length} color="blue" />
-          <BigStatCard icon={<Folder className="w-5 h-5"/>}   label="Site Folders" value={folders.length}   color="amber" />
-          <BigStatCard icon={<Crown className="w-5 h-5"/>}    label="Admins"       value={admins.length}    color="purple" />
+
+        {/* Stat cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => <StatSkeleton key={i} />)
+          ) : (
+            <>
+              <BigStatCard icon={<Users className="w-5 h-5"/>}    label="Total Users"  value={users.length}     color="violet" />
+              <BigStatCard icon={<BookOpen className="w-5 h-5"/>} label="Notebooks"    value={notebooks.length} color="blue" />
+              <BigStatCard icon={<Folder className="w-5 h-5"/>}   label="Site Folders" value={folders.length}   color="amber" />
+              <BigStatCard icon={<Crown className="w-5 h-5"/>}    label="Admins"       value={admins.length}    color="purple" />
+            </>
+          )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {/* Recent Users */}
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
                 <Clock className="w-4 h-4 text-violet-500" /> Recent Users
               </h3>
-              <span className="text-xs text-gray-400">{users.length} total</span>
+              <span className="text-xs text-gray-400">{loading ? '…' : `${users.length} total`}</span>
             </div>
             <div className="divide-y divide-gray-50">
-              {recentUsers.map(u => (
-                <div key={u.id} onClick={() => onSelectUser(u)}
-                  className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 cursor-pointer transition-colors">
-                  <Avatar name={u.full_name} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{u.full_name}</p>
-                    <p className="text-xs text-gray-400 truncate">{u.email}</p>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-5 py-3 animate-pulse">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="h-3 bg-gray-200 rounded w-32 mb-1.5" />
+                      <div className="h-2.5 bg-gray-100 rounded w-48" />
+                    </div>
+                    <div className="h-4 w-14 bg-gray-100 rounded-full" />
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    u.role === 'admin' ? 'bg-violet-100 text-violet-600' : 'bg-gray-100 text-gray-500'
-                  }`}>{u.role}</span>
-                </div>
-              ))}
+                ))
+              ) : recentUsers.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-8">No users yet</p>
+              ) : (
+                recentUsers.map(u => (
+                  <div key={u.id} onClick={() => onSelectUser(u)}
+                    className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 cursor-pointer transition-colors">
+                    <Avatar name={u.full_name} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{u.full_name}</p>
+                      <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      u.role === 'admin' ? 'bg-violet-100 text-violet-600' : 'bg-gray-100 text-gray-500'
+                    }`}>{u.role}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
+
+          {/* Content by Employee */}
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
@@ -297,28 +248,43 @@ function OverviewPanel({ users, notebooks, folders, onSelectUser }) {
               </h3>
             </div>
             <div className="p-5 space-y-4">
-              {employees.slice(0,5).map(emp => {
-                const nb = notebooks.filter(n => n.user_id === emp.id).length
-                const fl = folders.filter(f => f.user_id === emp.id).length
-                return (
-                  <div key={emp.id} onClick={() => onSelectUser(emp)}
-                    className="flex items-center gap-3 cursor-pointer group">
-                    <Avatar name={emp.full_name} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-700 truncate group-hover:text-violet-600 transition-colors">{emp.full_name}</p>
-                      <div className="flex items-center gap-3 mt-0.5">
-                        <span className="text-xs text-gray-400 flex items-center gap-1"><BookOpen className="w-2.5 h-2.5"/>{nb}</span>
-                        <span className="text-xs text-gray-400 flex items-center gap-1"><Folder className="w-2.5 h-2.5"/>{fl}</span>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 animate-pulse">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="h-3 bg-gray-200 rounded w-28 mb-1.5" />
+                      <div className="h-2 bg-gray-100 rounded w-20" />
+                    </div>
+                    <div className="w-16 h-1.5 bg-gray-100 rounded-full" />
+                  </div>
+                ))
+              ) : employees.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">No employees yet</p>
+              ) : (
+                employees.slice(0,5).map(emp => {
+                  const nb = notebooks.filter(n => n.user_id === emp.id).length
+                  const fl = folders.filter(f => f.user_id === emp.id).length
+                  const maxNb = Math.max(1, ...employees.map(e => notebooks.filter(n => n.user_id === e.id).length))
+                  return (
+                    <div key={emp.id} onClick={() => onSelectUser(emp)}
+                      className="flex items-center gap-3 cursor-pointer group">
+                      <Avatar name={emp.full_name} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-700 truncate group-hover:text-violet-600 transition-colors">{emp.full_name}</p>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          <span className="text-xs text-gray-400 flex items-center gap-1"><BookOpen className="w-2.5 h-2.5"/>{nb}</span>
+                          <span className="text-xs text-gray-400 flex items-center gap-1"><Folder className="w-2.5 h-2.5"/>{fl}</span>
+                        </div>
+                      </div>
+                      <div className="w-16 bg-gray-100 rounded-full h-1.5 flex-shrink-0">
+                        <div className="bg-violet-400 h-1.5 rounded-full transition-all"
+                          style={{ width: `${Math.min(100, (nb / maxNb) * 100)}%` }} />
                       </div>
                     </div>
-                    <div className="w-20 bg-gray-100 rounded-full h-1.5 flex-shrink-0">
-                      <div className="bg-violet-400 h-1.5 rounded-full"
-                        style={{width:`${Math.min(100,(nb/Math.max(1,notebooks.length))*100*employees.length)}%`}} />
-                    </div>
-                  </div>
-                )
-              })}
-              {employees.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No employees yet</p>}
+                  )
+                })
+              )}
             </div>
           </div>
         </div>
@@ -332,15 +298,15 @@ function UserDetailPanel({ user, notebooks, folders, tab, onTabChange, onSelectP
   onRoleChange, onDelete, nbExpanded, nbSections, loadingSections, onToggleNotebook }) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center gap-4">
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
+        <div className="flex items-start gap-4 flex-wrap sm:flex-nowrap">
           <Avatar name={user.full_name} size="lg" />
           <div className="flex-1 min-w-0">
             <h2 className="text-lg font-bold text-gray-900 truncate">{user.full_name}</h2>
             <p className="text-sm text-gray-400 flex items-center gap-1.5 mt-0.5">
               <Mail className="w-3.5 h-3.5"/>{user.email}
             </p>
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className={`text-xs px-2.5 py-1 rounded-full font-semibold border ${
                 user.role==='admin' ? 'bg-violet-100 text-violet-700 border-violet-200' : 'bg-blue-50 text-blue-600 border-blue-200'
               }`}>{user.role}</span>
@@ -373,7 +339,7 @@ function UserDetailPanel({ user, notebooks, folders, tab, onTabChange, onSelectP
             icon={<Folder className="w-3.5 h-3.5"/>} label={`Site Folders (${folders.length})`} />
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5">
         {tab==='notebooks' && (
           <NotebooksTabContent notebooks={notebooks} nbExpanded={nbExpanded} nbSections={nbSections}
             loadingSections={loadingSections} onToggleNotebook={onToggleNotebook} onSelectPage={onSelectPage} />
@@ -404,10 +370,7 @@ function NotebooksTabContent({ notebooks, nbExpanded, nbSections, loadingSection
     if (!isOpen && !sectionPagesMap[s.id]) {
       setLoadingPages(prev => ({ ...prev, [s.id]: true }))
       try {
-        const ps = await dbQuery(
-          'SELECT * FROM mf_pages WHERE section_id = $1 ORDER BY is_pinned DESC, sort_order, created_at',
-          [s.id]
-        )
+        const ps = await dbQuery('SELECT * FROM mf_pages WHERE section_id = $1 ORDER BY is_pinned DESC, sort_order, created_at', [s.id])
         setSectionPagesMap(prev => ({ ...prev, [s.id]: ps }))
       } finally {
         setLoadingPages(prev => ({ ...prev, [s.id]: false }))
@@ -513,28 +476,36 @@ function FoldersTabContent({ folders, onSelectFolder }) {
 /* ── PAGE VIEWER ── */
 function AdminPageView({ page, comments, commentText, setCommentText, onSendComment,
   loadingComments, onBack, onDeleteComment, onUpdatePage, onDeletePage }) {
+  const [editorMode, setEditorMode] = useState(false)
+
   return (
     <div className="flex flex-col h-full animate-fade-in">
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-5 py-3 flex items-center gap-3">
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2 flex-wrap">
         <button onClick={onBack}
-          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-medium px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors">
+          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-medium px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0">
           ← Back
         </button>
-        <span className="text-gray-300">|</span>
+        <span className="text-gray-300 flex-shrink-0">|</span>
         <FileText className="w-4 h-4 text-gray-400 flex-shrink-0"/>
-        <span className="font-semibold text-gray-800 text-sm truncate flex-1">{page.title}</span>
-        <span className="text-xs text-gray-400 flex-shrink-0">{formatDate(page.updated_at)}</span>
-        <span className="flex-shrink-0 text-xs bg-violet-100 text-violet-600 border border-violet-200 px-2.5 py-1 rounded-full font-medium">Admin View</span>
+        <span className="font-semibold text-gray-800 text-sm truncate flex-1 min-w-0">{page.title}</span>
+        <span className="text-xs text-gray-400 flex-shrink-0 hidden sm:inline">{formatDate(page.updated_at)}</span>
+        <button onClick={() => setEditorMode(m => !m)}
+          className={`flex-shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold border transition-all ${
+            editorMode ? 'bg-violet-600 text-white border-violet-600 shadow-sm' : 'bg-violet-50 text-violet-600 border-violet-200 hover:bg-violet-100'
+          }`}>
+          {editorMode ? '✏️ Editor' : '👁 View Only'}
+        </button>
         <button onClick={onDeletePage} className="flex-shrink-0 p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
           <Trash2 className="w-3.5 h-3.5"/>
         </button>
       </div>
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-hidden border-r border-gray-200">
-          <NoteEditor key={page.id} content={page.content} onChange={onUpdatePage}/>
+      <div className="flex flex-1 overflow-hidden min-h-0 flex-col md:flex-row">
+        <div className="flex-1 overflow-hidden border-b md:border-b-0 md:border-r border-gray-200 min-w-0" style={{minHeight: '60%'}}>
+          <NoteEditor key={`${page.id}-${editorMode}`} content={page.content}
+            onChange={editorMode ? onUpdatePage : undefined} readOnly={!editorMode}/>
         </div>
-        <div className="w-80 flex-shrink-0 flex flex-col bg-white">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+        <div className="md:w-72 lg:w-80 flex-shrink-0 flex flex-col bg-white" style={{maxHeight: '40%', minHeight: 200}}>
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 flex-shrink-0">
             <MessageSquare className="w-4 h-4 text-violet-500"/>
             <h3 className="text-sm font-semibold text-gray-800">Comments</h3>
             {comments.length > 0 && (
@@ -567,11 +538,11 @@ function AdminPageView({ page, comments, commentText, setCommentText, onSendComm
                   ))
             }
           </div>
-          <div className="p-3 border-t border-gray-100">
+          <div className="p-3 border-t border-gray-100 flex-shrink-0">
             <form onSubmit={onSendComment} className="space-y-2">
               <textarea value={commentText} onChange={e => setCommentText(e.target.value)}
                 onKeyDown={e => { if(e.key==='Enter'&&e.ctrlKey) onSendComment(e) }}
-                rows={3} placeholder="Feedback for this page… (Ctrl+Enter)"
+                rows={3} placeholder="Feedback… (Ctrl+Enter)"
                 className="w-full bg-gray-50 border border-gray-200 focus:border-violet-400 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 outline-none resize-none transition-colors"/>
               <button type="submit" disabled={!commentText.trim()}
                 className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold py-2.5 rounded-xl transition-colors">
@@ -600,7 +571,7 @@ function AdminFolderViewer({ folder, fetchImages, onBack }) {
 
   return (
     <div className="flex flex-col h-full animate-fade-in">
-      <div className="px-5 py-3 bg-white border-b border-gray-200 flex items-center gap-3 flex-shrink-0">
+      <div className="px-4 sm:px-5 py-3 bg-white border-b border-gray-200 flex items-center gap-3 flex-shrink-0 flex-wrap">
         <button onClick={onBack}
           className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-medium px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors">
           ← Back
@@ -618,19 +589,15 @@ function AdminFolderViewer({ folder, fetchImages, onBack }) {
           <button onClick={() => setViewMode('list')} className={`p-1.5 rounded transition-colors ${viewMode==='list'?'bg-white shadow-sm text-gray-800':'text-gray-400 hover:text-gray-700'}`}><List className="w-3.5 h-3.5"/></button>
         </div>
       </div>
-      <div className="px-5 py-2 border-b border-gray-100 bg-gray-50 flex items-center gap-4 text-xs text-gray-500 flex-shrink-0">
-        <span className="flex items-center gap-1.5"><ImageIcon className="w-3.5 h-3.5"/>{images.length} image{images.length!==1?'s':''}</span>
-        {folder.description && <span className="truncate opacity-70">{folder.description}</span>}
-      </div>
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5">
         {loading ? (
-          <div className={viewMode==='grid'?'grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4':'space-y-3'}>
-            {Array.from({length:8}).map((_,i) => <div key={i} className={`bg-gray-100 rounded-xl animate-pulse ${viewMode==='grid'?'aspect-square':'h-16'}`}/>)}
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-4">
+            {Array.from({length:8}).map((_,i) => <div key={i} className="aspect-square bg-gray-100 rounded-xl animate-pulse"/>)}
           </div>
         ) : images.length === 0 ? (
           <EmptyState icon={<ImageIcon className="w-8 h-8 text-gray-300"/>} title="No images yet" sub="Images uploaded to this folder will appear here"/>
         ) : viewMode==='grid' ? (
-          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {images.map(img => (
               <div key={img.id} onClick={() => setLightbox(img)}
                 className="group relative aspect-square rounded-xl overflow-hidden bg-gray-100 cursor-pointer border border-gray-200 hover:border-blue-300 transition-all shadow-sm hover:shadow-md">
@@ -638,11 +605,6 @@ function AdminFolderViewer({ folder, fetchImages, onBack }) {
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
                   <Eye className="w-6 h-6 text-white"/>
                 </div>
-                {img.caption && (
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-                    <p className="text-white text-xs truncate">{img.caption}</p>
-                  </div>
-                )}
               </div>
             ))}
           </div>
@@ -650,18 +612,13 @@ function AdminFolderViewer({ folder, fetchImages, onBack }) {
           <div className="space-y-2">
             {images.map(img => (
               <div key={img.id} onClick={() => setLightbox(img)}
-                className="flex items-center gap-4 p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 transition-colors cursor-pointer shadow-sm">
+                className="flex items-center gap-4 p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 transition-colors cursor-pointer">
                 <div className="w-14 h-12 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
                   <img src={img.file_url} alt={img.file_name} className="w-full h-full object-cover"/>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-800 font-medium truncate">{img.file_name}</p>
-                  <div className="flex items-center gap-3 mt-0.5">
-                    {img.file_size && <span className="text-xs text-gray-400">{(img.file_size/1024).toFixed(0)} KB</span>}
-                    <span className="text-xs text-gray-400">{formatDate(img.created_at)}</span>
-                    {img.uploader_name && <span className="text-xs text-gray-400">by {img.uploader_name}</span>}
-                  </div>
-                  {img.caption && <p className="text-xs text-gray-400 mt-0.5 truncate">{img.caption}</p>}
+                  <p className="text-xs text-gray-400">{formatDate(img.created_at)}</p>
                 </div>
                 <Eye className="w-4 h-4 text-gray-300 flex-shrink-0"/>
               </div>
@@ -670,15 +627,11 @@ function AdminFolderViewer({ folder, fetchImages, onBack }) {
         )}
       </div>
       {lightbox && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-8 animate-fade-in" onClick={() => setLightbox(null)}>
-          <button className="absolute top-4 right-4 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"><X className="w-6 h-6"/></button>
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 sm:p-8" onClick={() => setLightbox(null)}>
+          <button className="absolute top-4 right-4 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10"><X className="w-6 h-6"/></button>
           <div className="max-w-4xl max-h-full flex flex-col items-center gap-3" onClick={e => e.stopPropagation()}>
             <img src={lightbox.file_url} alt={lightbox.file_name} className="max-w-full max-h-[80vh] rounded-xl object-contain shadow-2xl"/>
-            <div className="text-center">
-              <p className="text-white font-medium">{lightbox.file_name}</p>
-              {lightbox.caption && <p className="text-white/60 text-sm mt-1">{lightbox.caption}</p>}
-              {lightbox.uploader_name && <p className="text-white/40 text-xs mt-1">by {lightbox.uploader_name}</p>}
-            </div>
+            <p className="text-white font-medium text-center">{lightbox.file_name}</p>
           </div>
         </div>
       )}
@@ -687,67 +640,13 @@ function AdminFolderViewer({ folder, fetchImages, onBack }) {
 }
 
 /* ── SHARED ── */
-function UserListItem({ user, active, onClick, onRoleChange, onDelete }) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  return (
-    <div onClick={onClick} className={`group relative flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all border ${
-      active ? 'bg-violet-50 border-violet-200' : 'hover:bg-gray-100 border-transparent'
-    }`}>
-      <Avatar name={user.full_name} size="sm"/>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-gray-800 truncate">{user.full_name}</p>
-        <p className="text-xs text-gray-400 truncate">{user.email}</p>
-      </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
-        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${user.role==='admin'?'bg-violet-100 text-violet-600':'bg-gray-100 text-gray-500'}`}>{user.role}</span>
-        <div className="relative" onClick={e => e.stopPropagation()}>
-          <button onClick={() => setMenuOpen(!menuOpen)}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700 transition-all">
-            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 4 16">
-              <circle cx="2" cy="2" r="2"/><circle cx="2" cy="8" r="2"/><circle cx="2" cy="14" r="2"/>
-            </svg>
-          </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-6 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
-              {user.role==='employee'
-                ? <button onClick={() => { onRoleChange(user.id,'admin'); setMenuOpen(false) }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-violet-600 hover:bg-violet-50 transition-colors">
-                    <Crown className="w-3 h-3"/> Promote to Admin
-                  </button>
-                : <button onClick={() => { onRoleChange(user.id,'employee'); setMenuOpen(false) }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-600 hover:bg-gray-100 transition-colors">
-                    <User className="w-3 h-3"/> Set as Employee
-                  </button>
-              }
-              <button onClick={() => { onDelete(); setMenuOpen(false) }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-500 hover:bg-red-50 transition-colors">
-                <Trash2 className="w-3 h-3"/> Remove User
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function StatRow({ icon, label, value }) {
-  return (
-    <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-      {icon}
-      <span className="text-xs text-gray-500 flex-1">{label}</span>
-      <span className="text-xs font-bold text-gray-700">{value}</span>
-    </div>
-  )
-}
-
 function BigStatCard({ icon, label, value, color }) {
   const colors = { violet:'bg-violet-50 border-violet-200 text-violet-600', blue:'bg-blue-50 border-blue-200 text-blue-600', amber:'bg-amber-50 border-amber-200 text-amber-600', purple:'bg-purple-50 border-purple-200 text-purple-600' }
   const c = colors[color] || colors.violet
   return (
     <div className={`${c} border rounded-2xl p-4 flex flex-col gap-2 shadow-sm`}>
       <div className="opacity-80">{icon}</div>
-      <p className="text-3xl font-bold text-gray-900">{value}</p>
+      <p className="text-2xl sm:text-3xl font-bold text-gray-900">{value}</p>
       <p className="text-xs text-gray-500 font-medium">{label}</p>
     </div>
   )

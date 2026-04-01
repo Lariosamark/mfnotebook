@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import ReactDOM from 'react-dom'
 import { useNotebooks } from '../../hooks/useNotebooks'
 import { useSections } from '../../hooks/useNotebooks'
 import { useApp } from '../../contexts/AppContext'
@@ -7,7 +8,7 @@ import {
   Plus, BookOpen, Trash2, Pencil, MoreHorizontal,
   BookMarked, ChevronRight, ChevronDown, Loader2, Eye,
   Users, UserCheck, UserX, Globe, Save, Lock, Search,
-  CheckCircle2
+  CheckCircle2, X
 } from 'lucide-react'
 import { Modal, ConfirmModal, Skeleton } from '../ui/Toast'
 import { SECTION_COLORS, formatDate } from '../../lib/utils'
@@ -35,14 +36,14 @@ export default function NotebookList({ onSelectSection }) {
   const [addSectionFor, setAddSectionFor] = useState(null)
   const [accessNotebook, setAccessNotebook] = useState(null) // notebook to manage access for
 
+  const refreshShared = () => {
+    fetchAdminNotebooks().then(rows => { if (rows) setSharedNotebooks(rows) })
+  }
+
   useEffect(() => {
     if (profile) {
       fetchNotebooks()
-      if (!isAdmin) {
-        fetchAdminNotebooks().then(rows => {
-          if (rows) setSharedNotebooks(rows)
-        })
-      }
+      refreshShared()
     }
   }, [profile])
 
@@ -105,12 +106,12 @@ export default function NotebookList({ onSelectSection }) {
               ))
         }
 
-        {/* Shared by Admin — only visible to employees */}
-        {!isAdmin && sharedNotebooks.length > 0 && (
+        {/* Shared with Me — visible to all users */}
+        {sharedNotebooks.length > 0 && (
           <div className="mt-3">
             <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100">
               <Eye className="w-3.5 h-3.5 text-purple-500" />
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Shared by Admin</span>
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Shared with Me</span>
             </div>
             {sharedNotebooks.map((nb) => (
               <SharedNotebookRow
@@ -157,7 +158,7 @@ export default function NotebookList({ onSelectSection }) {
         <NotebookAccessModal
           notebook={accessNotebook}
           onClose={() => setAccessNotebook(null)}
-          onSaved={() => showToast('Access updated')}
+          onSaved={() => { showToast('Access updated'); refreshShared() }}
         />
       )}
     </div>
@@ -243,13 +244,11 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
                   <Pencil className="w-3.5 h-3.5 text-gray-400" /> Rename
                 </button>
 
-                {/* Manage Access — admin only */}
-                {isAdmin && (
-                  <button onClick={(e) => { e.stopPropagation(); onManageAccess() }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-purple-600 hover:bg-purple-50 font-medium transition-colors">
-                    <Users className="w-3.5 h-3.5 text-purple-500" /> Manage Access
-                  </button>
-                )}
+                {/* Share with Teammates — available to all users */}
+                <button onClick={(e) => { e.stopPropagation(); onManageAccess() }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-purple-600 hover:bg-purple-50 font-medium transition-colors">
+                  <Users className="w-3.5 h-3.5 text-purple-500" /> Share with…
+                </button>
 
                 <div className="h-px bg-gray-100 mx-2" />
 
@@ -364,7 +363,9 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
 function NotebookAccessModal({ notebook, onClose, onSaved }) {
   const { users, fetchUsers } = useUsers()
   const { fetchNotebookAccess, setNotebookAccess } = useNotebooks()
-  const employees = users.filter(u => u.role === 'employee')
+  const { profile } = useAuth()
+  // Show all users except yourself
+  const teammates = users.filter(u => u.id !== profile?.id)
 
   const [selected, setSelected] = useState(new Set())
   const [loading, setLoading]   = useState(true)
@@ -406,142 +407,217 @@ function NotebookAccessModal({ notebook, onClose, onSaved }) {
     }
   }
 
-  const filtered = employees.filter(e =>
+  const filtered = teammates.filter(e =>
     e.full_name.toLowerCase().includes(search.toLowerCase()) ||
     e.email.toLowerCase().includes(search.toLowerCase())
   )
 
-  const selectedCount = [...selected].filter(id => employees.some(e => e.id === id)).length
+  const selectedCount = [...selected].filter(id => teammates.some(e => e.id === id)).length
 
-  return (
-    <Modal open onClose={onClose} title="Manage Notebook Access" size="md">
-      {/* Notebook info */}
-      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 mb-5 -mt-1">
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-lg"
-          style={{ backgroundColor: notebook.color + '20', border: `1px solid ${notebook.color}40` }}>
-          {notebook.emoji || '📓'}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-800 truncate">{notebook.title}</p>
-          <p className="text-xs text-gray-400">Choose which employees can view this notebook</p>
-        </div>
-        <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium border flex-shrink-0 ${
-          selectedCount > 0
-            ? 'bg-brand-50 text-brand-700 border-brand-200'
-            : 'bg-gray-100 text-gray-500 border-gray-200'
-        }`}>
-          {selectedCount > 0
-            ? <><UserCheck className="w-3 h-3" />{selectedCount} selected</>
-            : <><Lock className="w-3 h-3" />Private</>
-          }
-        </div>
-      </div>
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(8px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
 
-      {/* Search + quick actions */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search employees…"
-            className="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-4 py-2 text-sm text-gray-700 placeholder-gray-400 outline-none focus:border-brand-400 transition-colors" />
-        </div>
-        <button onClick={() => { setSelected(new Set(employees.map(e => e.id))); setDirty(true) }}
-          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 font-medium transition-colors whitespace-nowrap">
-          <Globe className="w-3.5 h-3.5" />All
-        </button>
-        <button onClick={() => { setSelected(new Set()); setDirty(true) }}
-          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 font-medium transition-colors whitespace-nowrap">
-          <UserX className="w-3.5 h-3.5" />None
-        </button>
-      </div>
+      <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden animate-scale-in flex flex-col"
+        style={{ maxHeight: '90vh' }}>
 
-      {/* Employee list */}
-      <div className="border border-gray-200 rounded-xl overflow-hidden mb-4" style={{ maxHeight: '280px', overflowY: 'auto' }}>
-        {loading ? (
-          <div className="flex items-center justify-center py-10">
-            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+        {/* ── Header with gradient ── */}
+        <div className="relative px-6 pt-6 pb-5 flex-shrink-0"
+          style={{ background: 'linear-gradient(135deg, #166534 0%, #15803d 60%, #16a34a 100%)' }}>
+          {/* Close */}
+          <button onClick={onClose}
+            className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-xl bg-white/20 hover:bg-white/30 text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+
+          {/* Notebook info */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shadow-lg flex-shrink-0"
+              style={{ backgroundColor: notebook.color + '30', border: '2px solid rgba(255,255,255,0.3)' }}>
+              {notebook.emoji || '📓'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-base font-bold text-white truncate">{notebook.title}</h2>
+              <p className="text-xs text-green-200 mt-0.5">Share notebook access with teammates</p>
+            </div>
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center py-10 text-center">
-            <Users className="w-8 h-8 text-gray-200 mb-2" />
-            <p className="text-gray-500 text-sm font-medium">
-              {search ? 'No employees match your search' : 'No employees in the system'}
-            </p>
+
+          {/* Stats bar */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-white/15 rounded-2xl px-4 py-2.5 flex items-center gap-2.5">
+              <Users className="w-4 h-4 text-green-200 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-green-200">Total teammates</p>
+                <p className="text-sm font-bold text-white">{teammates.length}</p>
+              </div>
+            </div>
+            <div className={`flex-1 rounded-2xl px-4 py-2.5 flex items-center gap-2.5 transition-colors ${
+              selectedCount > 0 ? 'bg-white/25' : 'bg-white/15'
+            }`}>
+              <UserCheck className="w-4 h-4 text-green-200 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-green-200">Can view</p>
+                <p className="text-sm font-bold text-white">{selectedCount}</p>
+              </div>
+            </div>
+            <div className={`flex-1 rounded-2xl px-4 py-2.5 flex items-center gap-2.5 ${
+              selectedCount === 0 ? 'bg-white/25' : 'bg-white/15'
+            }`}>
+              <Lock className="w-4 h-4 text-green-200 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-green-200">Private</p>
+                <p className="text-sm font-bold text-white">{selectedCount === 0 ? 'Yes' : 'No'}</p>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {filtered.map((emp) => {
-              const isSelected = selected.has(emp.id)
-              return (
-                <div
-                  key={emp.id}
-                  onClick={() => toggle(emp.id)}
-                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors select-none ${
-                    isSelected ? 'bg-brand-50/70 hover:bg-brand-50' : 'hover:bg-gray-50 bg-white'
-                  }`}
-                >
-                  {/* Checkbox */}
-                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                    isSelected
-                      ? 'bg-brand-600 border-brand-600'
-                      : 'border-gray-300 bg-white'
-                  }`}>
-                    {isSelected && (
-                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12">
-                        <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </div>
-
-                  {/* Avatar */}
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                    isSelected ? 'bg-brand-600 text-white' : 'bg-gray-200 text-gray-600'
-                  }`}>
-                    {emp.full_name?.charAt(0).toUpperCase()}
-                  </div>
-
-                  {/* Name + email */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${isSelected ? 'text-brand-800' : 'text-gray-800'}`}>
-                      {emp.full_name}
-                    </p>
-                    <p className="text-xs text-gray-400 truncate">{emp.email}</p>
-                  </div>
-
-                  {/* Can view badge */}
-                  {isSelected && (
-                    <span className="flex items-center gap-1 text-xs text-brand-600 font-medium bg-brand-100 px-2 py-0.5 rounded-full flex-shrink-0">
-                      <Eye className="w-3 h-3" />Can view
-                    </span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 text-xs">
-          {dirty
-            ? <span className="text-amber-600 font-medium">⚠ You have unsaved changes</span>
-            : selectedCount > 0
-              ? <span className="text-brand-600 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{selectedCount} employee{selectedCount !== 1 ? 's' : ''} can view</span>
-              : <span className="text-gray-400">Notebook is private — no employees selected</span>
-          }
         </div>
-        <button onClick={onClose}
-          className="px-4 py-2.5 text-sm font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors">
-          Cancel
-        </button>
-        <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          {saving ? 'Saving…' : 'Save Access'}
-        </button>
+
+        {/* ── Search + Quick actions ── */}
+        <div className="px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Search by name or email…"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-700 placeholder-gray-400 outline-none focus:border-brand-400 focus:bg-white transition-all" />
+            </div>
+            <button
+              onClick={() => { setSelected(new Set(teammates.map(e => e.id))); setDirty(true) }}
+              className="flex items-center gap-1.5 text-xs px-3.5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors whitespace-nowrap shadow-sm">
+              <Globe className="w-3.5 h-3.5" />All
+            </button>
+            <button
+              onClick={() => { setSelected(new Set()); setDirty(true) }}
+              className="flex items-center gap-1.5 text-xs px-3.5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 font-semibold transition-colors whitespace-nowrap">
+              <UserX className="w-3.5 h-3.5" />None
+            </button>
+          </div>
+        </div>
+
+        {/* ── Teammate list ── */}
+        <div className="flex-1 overflow-y-auto px-3 py-3 min-h-0">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Loader2 className="w-7 h-7 animate-spin text-brand-400" />
+              <p className="text-sm text-gray-400">Loading teammates…</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center py-16 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-3">
+                <Users className="w-7 h-7 text-gray-300" />
+              </div>
+              <p className="text-gray-600 text-sm font-semibold">
+                {search ? 'No teammates found' : 'No other users'}
+              </p>
+              <p className="text-gray-400 text-xs mt-1">
+                {search ? 'Try a different search term' : 'Invite teammates to get started'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {filtered.map((emp) => {
+                const isSelected = selected.has(emp.id)
+                const initials = emp.full_name?.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase() || '?'
+                return (
+                  <div
+                    key={emp.id}
+                    onClick={() => toggle(emp.id)}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-2xl cursor-pointer transition-all select-none group ${
+                      isSelected
+                        ? 'bg-brand-50 border border-brand-200 shadow-sm'
+                        : 'bg-gray-50 border border-transparent hover:border-gray-200 hover:bg-white'
+                    }`}
+                  >
+                    {/* Avatar */}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-sm transition-all ${
+                      isSelected
+                        ? 'bg-brand-600 text-white'
+                        : 'bg-white text-gray-600 border border-gray-200 group-hover:border-gray-300'
+                    }`}>
+                      {initials}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold truncate transition-colors ${
+                        isSelected ? 'text-brand-800' : 'text-gray-800'
+                      }`}>
+                        {emp.full_name}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {emp.email}
+                        <span className={`ml-1.5 px-1.5 py-0.5 rounded-md text-[10px] font-medium capitalize inline-block ${
+                          emp.role === 'admin' ? 'bg-violet-100 text-violet-600' : 'bg-gray-200 text-gray-500'
+                        }`}>{emp.role}</span>
+                      </p>
+                    </div>
+
+                    {/* Toggle */}
+                    <div className={`flex items-center gap-1.5 flex-shrink-0 transition-all ${
+                      isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
+                    }`}>
+                      {isSelected ? (
+                        <span className="flex items-center gap-1.5 text-xs text-brand-700 font-semibold bg-brand-100 border border-brand-200 px-3 py-1.5 rounded-xl">
+                          <Eye className="w-3.5 h-3.5" />Can view
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-xs text-gray-500 font-medium bg-white border border-gray-200 px-3 py-1.5 rounded-xl">
+                          + Add
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Checkbox indicator */}
+                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      isSelected ? 'bg-brand-600 border-brand-600' : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12">
+                          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/80 flex-shrink-0">
+          {/* Status message */}
+          <div className={`flex items-center gap-2 mb-3 text-xs px-3 py-2 rounded-xl ${
+            dirty
+              ? 'bg-amber-50 border border-amber-200 text-amber-700'
+              : selectedCount > 0
+                ? 'bg-brand-50 border border-brand-200 text-brand-700'
+                : 'bg-gray-100 border border-gray-200 text-gray-500'
+          }`}>
+            {dirty
+              ? <><span className="text-amber-500">⚠</span> Unsaved changes — click Save to apply</>
+              : selectedCount > 0
+                ? <><CheckCircle2 className="w-3.5 h-3.5 text-brand-500" />{selectedCount} teammate{selectedCount !== 1 ? 's' : ''} can view this notebook</>
+                : <><Lock className="w-3.5 h-3.5" />Notebook is private — only you can see it</>
+            }
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button onClick={onClose}
+              className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-xl bg-white border border-gray-200 hover:bg-gray-100 text-gray-600 transition-colors">
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={saving || !dirty}
+              className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all shadow-sm">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? 'Saving…' : 'Save Access'}
+            </button>
+          </div>
+        </div>
       </div>
-    </Modal>
+    </div>,
+    document.body
   )
 }
 
@@ -668,10 +744,17 @@ function NotebookFormModal({ open, onClose, onSave, initialData }) {
 /* ─── Shared (read-only) Notebook Row for employees ─────── */
 function SharedNotebookRow({ nb, expanded, onToggle, onSelectSection }) {
   const { sections, loading: sectionsLoading, fetchSections } = useSections()
+  const { setActiveNotebook, setNotebookSwitching } = useApp()
 
   useEffect(() => {
     if (expanded) fetchSections(nb.id)
   }, [expanded, nb.id])
+
+  const handleSelectSection = (s) => {
+    setNotebookSwitching(false)
+    setActiveNotebook(nb)
+    onSelectSection(s)
+  }
 
   return (
     <div className="select-none">
@@ -683,7 +766,12 @@ function SharedNotebookRow({ nb, expanded, onToggle, onSelectSection }) {
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         </span>
         <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: nb.color }} />
-        <span className="flex-1 text-sm truncate font-medium text-gray-600">{nb.title}</span>
+        <div className="flex-1 min-w-0">
+          <span className="block text-sm truncate font-medium text-gray-600">{nb.title}</span>
+          {nb.owner_name && (
+            <span className="block text-xs text-purple-400 truncate">by {nb.owner_name}</span>
+          )}
+        </div>
         <Eye className="w-3 h-3 text-purple-400 flex-shrink-0 opacity-60" />
       </div>
 
@@ -699,7 +787,7 @@ function SharedNotebookRow({ nb, expanded, onToggle, onSelectSection }) {
               : sections.map((s) => (
                   <div
                     key={s.id}
-                    onClick={(e) => { e.stopPropagation(); onSelectSection(s) }}
+                    onClick={(e) => { e.stopPropagation(); handleSelectSection(s) }}
                     className="flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-all mb-0.5 text-gray-500 hover:text-purple-700 hover:bg-purple-50 border border-transparent"
                   >
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />

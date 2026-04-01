@@ -1,9 +1,8 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useApp } from '../contexts/AppContext'
-import NotebookList from '../components/notebook/NotebookList'
 import { PageTabs } from '../components/notebook/SectionPanel'
 import PageEditor from '../components/notebook/PageEditor'
-import { BookOpen, Loader2, MousePointerClick } from 'lucide-react'
+import { BookOpen, Loader2, MousePointerClick, BookMarked } from 'lucide-react'
 
 export default function NotebooksPage() {
   const {
@@ -11,81 +10,60 @@ export default function NotebooksPage() {
     activeSection, setActiveSection,
     activePage, setActivePage,
     notebookSwitching,
+    isSharedNotebook,
+    setSidebarOpen,
   } = useApp()
 
-  const [viewerMode, setViewerMode] = useState(false)
+  // Shared notebooks are view-only for employees
+  const viewerMode = isSharedNotebook
 
-  // Reset viewerMode when section is cleared (e.g. switching notebooks)
   useEffect(() => {
-    if (!activeSection) setViewerMode(false)
+    if (!activeSection) {
+      // Reset shared flag when no section is active
+    }
   }, [activeSection])
 
-  // Resizable notebook sidebar
-  const [notebookWidth, setNotebookWidth] = useState(240)
-  const dragging = useRef(false)
-  const startX = useRef(0)
-  const startW = useRef(0)
-
-  const onMouseDown = useCallback((e) => {
-    e.preventDefault()
-    dragging.current = true
-    startX.current = e.clientX
-    startW.current = notebookWidth
-
-    const onMove = (e) => {
-      if (!dragging.current) return
-      const newW = Math.min(340, Math.max(180, startW.current + (e.clientX - startX.current)))
-      setNotebookWidth(newW)
-    }
-    const onUp = () => {
-      dragging.current = false
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }, [notebookWidth])
-
-  const handleSelectSection = (s, isShared = false) => {
-    setActiveSection(s)
-    setActivePage(null)
-    setViewerMode(!!isShared)
-  }
-
   return (
-    <div className="flex h-full overflow-hidden bg-gray-50">
-      {/* Left — Notebooks + inline sections tree */}
-      <div
-        className="flex-shrink-0 overflow-hidden flex flex-col border-r border-gray-200 shadow-panel bg-white"
-        style={{ width: notebookWidth }}
-      >
-        <NotebookList onSelectSection={handleSelectSection} />
-      </div>
-
-      {/* Drag resize handle */}
-      <div className="resize-handle" onMouseDown={onMouseDown} title="Drag to resize" />
+    <div className="flex h-full overflow-hidden bg-gray-50 relative">
 
       {/* Right — Page tabs + Editor */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
-        {/* ── Loading state: switching notebook, sections being fetched ── */}
+        {/* Mobile top bar */}
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-gray-200 bg-white flex-shrink-0">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="flex items-center gap-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 px-3 py-1.5 rounded-xl transition-colors"
+          >
+            <BookMarked className="w-3.5 h-3.5" />
+            {activeNotebook ? activeNotebook.title : 'Notebooks'}
+          </button>
+          {activeSection && (
+            <span className="text-xs text-gray-400 flex items-center gap-1.5 truncate min-w-0">
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: activeSection.color }} />
+              <span className="truncate">{activeSection.title}</span>
+            </span>
+          )}
+        </div>
+
         {notebookSwitching ? (
           <NotebookLoadingState notebookTitle={activeNotebook?.title} />
         ) : (
           <>
-            {/* Page tabs bar — only shown when a section is active */}
             <PageTabs
               section={activeSection}
               onSelectPage={setActivePage}
               viewerMode={viewerMode}
             />
 
-            {/* ── Empty state: notebook selected, but no section chosen yet ── */}
             {activeNotebook && !activeSection && (
-              <NoSectionSelected notebook={activeNotebook} />
+              <NoSectionSelected notebook={activeNotebook} onOpenList={() => setSidebarOpen(true)} />
             )}
 
-            {/* Editor — only shown when a section is active */}
+            {!activeNotebook && !activeSection && (
+              <NoNotebookSelected onOpenList={() => setSidebarOpen(true)} />
+            )}
+
             {activeSection && (
               <div className="flex-1 overflow-hidden">
                 <PageEditor
@@ -102,52 +80,72 @@ export default function NotebooksPage() {
   )
 }
 
-/* ── Loading skeleton shown while sections are being fetched ── */
 function NotebookLoadingState({ notebookTitle }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-5 text-center p-10">
-      {/* Spinner */}
       <div className="w-14 h-14 rounded-2xl bg-brand-50 border-2 border-brand-100 flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-brand-500 animate-spin" />
       </div>
-
       <div>
         <p className="text-sm font-semibold text-gray-600">
           Opening{notebookTitle ? ` "${notebookTitle}"` : ' notebook'}…
         </p>
         <p className="text-xs text-gray-400 mt-1">Loading sections, please wait</p>
       </div>
-
-      {/* Skeleton rows */}
       <div className="w-56 space-y-2 mt-2">
         {[80, 60, 72, 50].map((w, i) => (
-          <div
-            key={i}
-            className="h-3 rounded-full bg-gray-100 animate-pulse"
-            style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }}
-          />
+          <div key={i} className="h-3 rounded-full bg-gray-100 animate-pulse"
+            style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }} />
         ))}
       </div>
     </div>
   )
 }
 
-/* ── Placeholder shown when a notebook is open but no section chosen ── */
-function NoSectionSelected({ notebook }) {
+function NoNotebookSelected({ onOpenList }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-10">
       <div className="w-14 h-14 rounded-2xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center">
         <BookOpen className="w-6 h-6 text-brand-400" />
       </div>
       <div>
-        <p className="text-sm font-semibold text-gray-600">
-          {notebook.title}
-        </p>
+        <p className="text-sm font-semibold text-gray-600">No notebook open</p>
         <p className="text-xs text-gray-400 mt-1 flex items-center gap-1 justify-center">
           <MousePointerClick className="w-3.5 h-3.5" />
-          Select a section on the left to get started
+          Select a notebook from the sidebar
         </p>
       </div>
+      <button
+        onClick={onOpenList}
+        className="md:hidden flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm mt-2"
+      >
+        <BookMarked className="w-4 h-4" />
+        Open Notebooks
+      </button>
+    </div>
+  )
+}
+
+function NoSectionSelected({ notebook, onOpenList }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-10">
+      <div className="w-14 h-14 rounded-2xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center">
+        <BookOpen className="w-6 h-6 text-brand-400" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-gray-600">{notebook.title}</p>
+        <p className="text-xs text-gray-400 mt-1 flex items-center gap-1 justify-center">
+          <MousePointerClick className="w-3.5 h-3.5" />
+          Select a section from the sidebar
+        </p>
+      </div>
+      <button
+        onClick={onOpenList}
+        className="md:hidden flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm mt-2"
+      >
+        <BookMarked className="w-4 h-4" />
+        Choose a Section
+      </button>
     </div>
   )
 }

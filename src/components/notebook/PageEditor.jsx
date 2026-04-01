@@ -135,7 +135,7 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
 
         {/* Comments panel */}
         {showComments && (
-          <div className="w-72 flex flex-col bg-gray-50 flex-shrink-0 animate-slide-in-right border-l border-gray-200">
+          <div className="w-full md:w-72 flex flex-col bg-gray-50 flex-shrink-0 animate-slide-in-right border-l border-gray-200 absolute md:relative inset-0 md:inset-auto z-10 md:z-auto">
             <div className="px-4 py-3 border-b border-gray-200 bg-white">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">

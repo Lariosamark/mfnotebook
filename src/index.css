@@ -178,3 +178,46 @@
   outline-offset: 2px;
   border-radius: 12px;
 }
+/* ── Responsive Editor Fixes ─────────────────────────── */
+/* Ensure voice recorder modal is always on top of maps */
+.fixed.z-\[9999\] {
+  z-index: 9999 !important;
+}
+
+/* Map node — proper overflow containment */
+.map-node-wrapper {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+}
+.map-node-wrapper > div {
+  overflow: hidden;
+}
+
+/* Leaflet map inside editor — never overflow */
+.map-node-wrapper .leaflet-container {
+  border-radius: 0;
+}
+
+/* Editor area — responsive padding on small screens */
+@media (max-width: 640px) {
+  .prose-editor .ProseMirror {
+    padding: 1.25rem 1rem;
+  }
+  .page-title-input {
+    padding: 1rem 1rem 0.5rem;
+    font-size: 1.2rem;
+  }
+}
+
+/* NoteEditor flex container — prevent overflow from map */
+.app-editor-area {
+  overflow: hidden;
+  position: relative;
+}
+
+/* Voice recording block in editor */
+[data-voice-recording] audio {
+  display: block;
+  width: 100%;
+}

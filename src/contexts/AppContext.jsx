@@ -5,12 +5,17 @@ const AppContext = createContext(null)
 export function AppProvider({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [activeNotebook, setActiveNotebook] = useState(null)
-  const [activeSection, setActiveSection] = useState(null)
-  const [activePage, setActivePage] = useState(null)
-  const [activeView, setActiveView] = useState('notebooks') // notebooks | folders | admin
-  const [toast, setToast] = useState(null)
-  // true while sections are being fetched after switching to a different notebook
+  const [activeSection, setActiveSection]   = useState(null)
+  const [activePage, setActivePage]         = useState(null)
+  const [activeView, setActiveView]         = useState('notebooks')
+  const [activeFolder, setActiveFolder]     = useState(null)
+  const [toast, setToast]                   = useState(null)
   const [notebookSwitching, setNotebookSwitching] = useState(false)
+  const [isSharedNotebook, setIsSharedNotebook]   = useState(false)
+
+  // Admin shared state
+  const [activeAdminTab, setActiveAdminTab]       = useState('overview')
+  const [adminSelectedUser, setAdminSelectedUser] = useState(null)
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
@@ -24,8 +29,12 @@ export function AppProvider({ children }) {
       activeSection, setActiveSection,
       activePage, setActivePage,
       activeView, setActiveView,
+      activeFolder, setActiveFolder,
       toast, showToast,
       notebookSwitching, setNotebookSwitching,
+      isSharedNotebook, setIsSharedNotebook,
+      activeAdminTab, setActiveAdminTab,
+      adminSelectedUser, setAdminSelectedUser,
     }}>
       {children}
     </AppContext.Provider>
