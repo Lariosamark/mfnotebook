@@ -128,34 +128,53 @@ setLiveText(interim)
 
   r.onend = () => {
 
-  // flush interim to final before restart
+  console.log("Speech ended")
+
+  // 🔥 IMPORTANT: flush pending interim FIRST
   const pending = interimAccumRef.current.trim()
 
   if (pending) {
+
     finalAccumRef.current += pending + ' '
+
     setFinalText(finalAccumRef.current)
+
     interimAccumRef.current = ''
+
   }
 
   setLiveText('')
 
-  if (!stoppedManuallyRef.current && isRecordingRef.current) {
+  if (
+    !stoppedManuallyRef.current &&
+    isRecordingRef.current
+  ) {
 
-    const delay = isMobile() ? 1200 : 0
+    // 📱 Mobile needs longer restart delay
+    const delay = isMobile()
+      ? 1200
+      : 0
 
-    restartTimerRef.current = setTimeout(() => {
-
-      if (!stoppedManuallyRef.current && isRecordingRef.current) {
+    restartTimerRef.current =
+      setTimeout(() => {
 
         try {
+
           recognitionRef.current?.start()
+
+          console.log("Speech restarted")
+
         } catch (err) {
-          console.log('Restart failed:', err)
+
+          console.log("Restart failed:", err)
+
         }
 
-      }
+      }, delay)
 
-    }, delay)
+  } else {
+
+    setIsRecording(false)
 
   }
 
