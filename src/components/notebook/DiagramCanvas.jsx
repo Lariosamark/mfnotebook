@@ -113,9 +113,8 @@ function edgePath(n1, n2) {
 export default function DiagramCanvas({ data, onChange, readOnly }) {
   const [nodes,       setNodes]       = useState(data?.nodes  || [])
   const [edges,       setEdges]       = useState(data?.edges  || [])
-  const [drawings,    setDrawings]    = useState(data?.drawings || []) // freehand + boxes
-  const [selected,    setSelected]    = useState(null)   // {type:'node'|'edge'|'drawing', id}
-  // mode: 'select' | 'connect' | 'pen' | 'box' | 'line'
+  const [drawings,    setDrawings]    = useState(data?.drawings || [])
+  const [selected,    setSelected]    = useState(null)
   const [mode,        setMode]        = useState('select')
   const [connectSrc,  setConnectSrc]  = useState(null)
   const [editingNode, setEditingNode] = useState(null)
@@ -126,20 +125,32 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
   const [panning,     setPanning]     = useState(null)
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [mousePos,    setMousePos]    = useState({ x: 0, y: 0 })
-  // draw state
-  const [activeStroke, setActiveStroke] = useState(null) // { type:'pen'|'box'|'line', pts/x1y1x2y2 }
+  const [activeStroke, setActiveStroke] = useState(null)
   const [drawColor,   setDrawColor]   = useState('#374151')
 
   const svgRef  = useRef(null)
   const didDrag = useRef(false)
   const isDrawing = useRef(false)
 
-  // Notify parent
-  useEffect(() => { onChange?.({ nodes, edges, drawings }) }, [nodes, edges, drawings])
+  // ✅ FIX 1: Defer onChange so it never fires synchronously inside a React
+  // render cycle. Tiptap's ReactNodeView calls flushSync internally when
+  // updateAttributes is invoked — deferring via setTimeout breaks that chain
+  // and eliminates the "flushSync was called from inside a lifecycle" warning.
+  const skipNotifyRef = useRef(true) // skip the very first mount notification
+  useEffect(() => {
+    if (skipNotifyRef.current) { skipNotifyRef.current = false; return }
+    const id = setTimeout(() => onChange?.({ nodes, edges, drawings }), 0)
+    return () => clearTimeout(id)
+  }, [nodes, edges, drawings])
 
-  // Load external data
+  // ✅ FIX 2: Guard against the infinite update loop:
+  //   onChange → parent updates `data` prop → this effect fires → setState
+  //   → triggers onChange effect again → repeat forever.
+  // Setting skipNotifyRef=true before applying external data tells the
+  // onChange effect to skip one cycle after we've loaded from outside.
   useEffect(() => {
     if (data) {
+      skipNotifyRef.current = true
       setNodes(data.nodes    || [])
       setEdges(data.edges    || [])
       setDrawings(data.drawings || [])
@@ -155,7 +166,7 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
     }
   }, [pan, zoom])
 
-  /* ── wheel zoom — attached imperatively so we can use { passive: false } ── */
+  /* ── wheel zoom ── */
   const onWheel = useCallback((e) => {
     e.preventDefault()
     setZoom(z => Math.min(3, Math.max(0.2, z * (e.deltaY > 0 ? 0.9 : 1.1))))
@@ -184,7 +195,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
         setSelected(null)
       }
       if (e.key === 'Escape') { setMode('select'); setConnectSrc(null); setSelected(null); setShowAddMenu(false) }
-      // shortcuts
       if (e.key === 'v') setMode('select')
       if (e.key === 'c') { setMode('connect'); setConnectSrc(null); setSelected(null) }
       if (e.key === 'p') setMode('pen')
@@ -208,14 +218,11 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
   /* ── SVG mouse events ── */
   const getSvgPos = (e) => {
     const rect = svgRef.current?.getBoundingClientRect()
-    return rect ? {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
-    } : { x: 0, y: 0 }
+    return rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : { x: 0, y: 0 }
   }
 
   const onSvgMouseDown = (e) => {
-    if (e.button === 1) { // middle mouse pan
+    if (e.button === 1) {
       e.preventDefault()
       setPanning({ sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y })
       return
@@ -273,7 +280,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
       } else {
         stroke = { ...stroke, x2: pt.x, y2: pt.y }
       }
-      // Only save if has actual size
       const hasSize = stroke.type === 'pen'
         ? stroke.pts.length > 2
         : (Math.abs(stroke.x2 - stroke.x1) > 3 || Math.abs(stroke.y2 - stroke.y1) > 3)
@@ -288,9 +294,8 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
   const onNodeMouseDown = (e, nodeId) => {
     if (readOnly) return
     e.stopPropagation()
-    // Always reset didDrag so connect clicks aren't swallowed
     didDrag.current = false
-    if (mode !== 'select') return // don't drag in other modes
+    if (mode !== 'select') return
     const pt = toSvg(e.clientX, e.clientY)
     const node = nodes.find(n => n.id === nodeId)
     setDragging({ nodeId, ox: pt.x - node.x, oy: pt.y - node.y })
@@ -356,7 +361,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
   const nodeById = id => nodes.find(n => n.id === id)
   const selectedNode = selected?.type === 'node' ? nodeById(selected.id) : null
 
-  /* ── rendering helpers ── */
   const penPath = (pts) =>
     pts.length < 2 ? '' :
     pts.reduce((acc, p, i) =>
@@ -388,7 +392,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
       {!readOnly && (
         <div className="flex items-center gap-1 px-3 py-2 bg-gray-50 border-b border-gray-200 flex-shrink-0 flex-wrap">
 
-          {/* Add Node dropdown */}
           <div className="relative">
             <button onClick={() => setShowAddMenu(v => !v)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg shadow-sm">
@@ -414,7 +417,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
 
           <div className="w-px h-5 bg-gray-200 mx-0.5" />
 
-          {/* Mode buttons */}
           {toolBtn('select',  <MousePointer className="w-3.5 h-3.5" />, 'Select',  'V')}
           {toolBtn('connect', <Link2        className="w-3.5 h-3.5" />,
             mode === 'connect'
@@ -424,7 +426,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
           {toolBtn('box',     <Square       className="w-3.5 h-3.5" />, 'Box',    'B')}
           {toolBtn('line',    <Minus        className="w-3.5 h-3.5" />, 'Line',   'L')}
 
-          {/* Draw color swatches (visible in pen/box/line mode) */}
           {(mode === 'pen' || mode === 'box' || mode === 'line') && (
             <>
               <div className="w-px h-5 bg-gray-200 mx-0.5" />
@@ -441,7 +442,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
 
           <div className="w-px h-5 bg-gray-200 mx-0.5" />
 
-          {/* Delete selected */}
           {selected && (
             <button onClick={() => {
               if (selected.type === 'node') {
@@ -461,7 +461,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
 
           <div className="flex-1" />
 
-          {/* Zoom */}
           <button onClick={() => setZoom(z => Math.min(3, z*1.2))} className="p-1.5 text-gray-400 hover:bg-gray-200 rounded-lg"><ZoomIn className="w-3.5 h-3.5" /></button>
           <span className="text-xs text-gray-400 w-9 text-center font-mono">{Math.round(zoom*100)}%</span>
           <button onClick={() => setZoom(z => Math.max(0.2, z*0.8))} className="p-1.5 text-gray-400 hover:bg-gray-200 rounded-lg"><ZoomOut className="w-3.5 h-3.5" /></button>
@@ -475,7 +474,7 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
 
       {/* ── CANVAS ── */}
       <div className="flex-1 relative overflow-hidden"
-        style={{ cursor: mode === 'connect' ? 'crosshair' : mode === 'pen' ? 'crosshair' : mode === 'box' ? 'crosshair' : mode === 'line' ? 'crosshair' : 'default' }}>
+        style={{ cursor: mode !== 'select' ? 'crosshair' : 'default' }}>
         <svg
           ref={svgRef}
           className="w-full h-full select-none"
@@ -497,7 +496,7 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
 
           <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
 
-            {/* ── DRAWINGS (freehand, boxes, lines) ── */}
+            {/* ── DRAWINGS ── */}
             {drawings.map(d => {
               const isSel = selected?.type === 'drawing' && selected.id === d.id
               const stroke = isSel ? '#2563eb' : (d.color || '#374151')
@@ -637,7 +636,6 @@ export default function DiagramCanvas({ data, onChange, readOnly }) {
           </g>
         </svg>
 
-        {/* Empty state */}
         {nodes.length === 0 && drawings.length === 0 && !readOnly && (
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center gap-1.5">
             <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-1">

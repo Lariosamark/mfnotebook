@@ -14,10 +14,13 @@ const LANGS = [
   { code: 'de-DE',  label: '🇩🇪 German' },
 ]
 
-/* Mobile browsers (iOS/Android) don't support continuous mode reliably */
 const isMobile = () =>
   typeof navigator !== 'undefined' &&
   /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+const isIOS = () =>
+  typeof navigator !== 'undefined' &&
+  /iPhone|iPad|iPod/i.test(navigator.userAgent)
 
 export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const [isRecording, setIsRecording]     = useState(false)
@@ -32,7 +35,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
 
   const recognitionRef      = useRef(null)
   const finalAccumRef       = useRef('')
-  const interimAccumRef     = useRef('')  // latest interim — flushed on Done
+  const interimAccumRef     = useRef('')
   const stoppedManuallyRef  = useRef(false)
   const isRecordingRef      = useRef(false)
   const mediaRecorderRef    = useRef(null)
@@ -64,48 +67,38 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
-const buildRecognition = useCallback((langCode) => {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-  if (!SR) return null
+  const buildRecognition = useCallback((langCode) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) return null
 
-  const r = new SR()
+    const mobile = isMobile()
+    const r = new SR()
+    r.lang = langCode
+    r.continuous      = !mobile          // mobile: false is more reliable
+    r.interimResults  = !isIOS()         // ✅ FIX: iOS ignores interimResults and can misbehave; disable it
+    r.maxAlternatives = 1
 
-  r.lang = langCode
+    r.onresult = (e) => {
+      let interim = '', newFinal = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
+        if (e.results[i].isFinal) {
+          newFinal += t + ' '
+        } else {
+          interim += t
+        }
+      }
 
-  // FIXED
-  r.continuous = true
-  r.interimResults = true
-  r.maxAlternatives = 1
+      if (newFinal) {
+        finalAccumRef.current += newFinal
+        setFinalText(finalAccumRef.current)
+        interimAccumRef.current = ''
+      }
 
-  r.onresult = (e) => {
-    console.log("Speech result received:", e) // debug
-
-let interim = ''
-let newFinal = ''
-
-for (let i = e.resultIndex; i < e.results.length; i++) {
-
-  const result = e.results[i]
-  const text = result[0].transcript
-
-  if (result.isFinal) {
-    newFinal += text + ' '
-  } else {
-    interim += text
-  }
-
-}
-
-if (newFinal) {
-
-  finalAccumRef.current += newFinal
-  setFinalText(finalAccumRef.current)
-
-}
-
-interimAccumRef.current = interim
-setLiveText(interim)
-  }
+      // On iOS interimResults is off, so interim will always be ''
+      interimAccumRef.current = interim
+      setLiveText(interim)
+    }
 
     r.onerror = (e) => {
       if (e.error === 'not-allowed') {
@@ -113,72 +106,40 @@ setLiveText(interim)
         stoppedManuallyRef.current = true
         setIsRecording(false)
       } else if (e.error === 'network') {
-        // Mobile Safari network error — schedule restart
+        // Mobile network blip — schedule restart
         if (!stoppedManuallyRef.current && isRecordingRef.current) {
           restartTimerRef.current = setTimeout(() => {
             if (!stoppedManuallyRef.current && isRecordingRef.current) {
               try { recognitionRef.current?.start() } catch {}
             }
-          }, 400)
+          }, 600) // ✅ FIX: longer delay for mobile network recovery
         }
+      } else if (e.error === 'audio-capture') {
+        // ✅ FIX: explicit message for mic-in-use errors on mobile
+        setError('Microphone is busy or unavailable. Close other apps using the mic and try again.')
+        stoppedManuallyRef.current = true
+        setIsRecording(false)
       } else if (e.error !== 'aborted' && e.error !== 'no-speech') {
         setError(`Recognition error: "${e.error}". Tap Start again to retry.`)
       }
     }
 
-  r.onend = () => {
+    r.onend = () => {
+      setLiveText('')
+      interimAccumRef.current = ''
+      if (!stoppedManuallyRef.current && isRecordingRef.current) {
+        // ✅ FIX: longer restart delay on mobile — 500ms gives the OS time to release the audio session
+        const delay = isMobile() ? 500 : 0
+        restartTimerRef.current = setTimeout(() => {
+          if (!stoppedManuallyRef.current && isRecordingRef.current) {
+            try { recognitionRef.current?.start() } catch {}
+          }
+        }, delay)
+      } else {
+        setIsRecording(false)
+      }
+    }
 
-  console.log("Speech ended")
-
-  // 🔥 IMPORTANT: flush pending interim FIRST
-  const pending = interimAccumRef.current.trim()
-
-  if (pending) {
-
-    finalAccumRef.current += pending + ' '
-
-    setFinalText(finalAccumRef.current)
-
-    interimAccumRef.current = ''
-
-  }
-
-  setLiveText('')
-
-  if (
-    !stoppedManuallyRef.current &&
-    isRecordingRef.current
-  ) {
-
-    // 📱 Mobile needs longer restart delay
-    const delay = isMobile()
-      ? 1200
-      : 0
-
-    restartTimerRef.current =
-      setTimeout(() => {
-
-        try {
-
-          recognitionRef.current?.start()
-
-          console.log("Speech restarted")
-
-        } catch (err) {
-
-          console.log("Restart failed:", err)
-
-        }
-
-      }, delay)
-
-  } else {
-
-    setIsRecording(false)
-
-  }
-
-}
     return r
   }, [])
 
@@ -198,24 +159,33 @@ setLiveText(interim)
     setAudioDuration(0)
     audioChunksRef.current = []
 
-    // Audio capture
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : ''
-      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
-      mr.ondataavailable = (e) => {
-        if (e.data?.size > 0) audioChunksRef.current.push(e.data)
-      }
-      mr.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' })
-        setAudioBlob(blob)
-        stream.getTracks().forEach(t => t.stop())
-      }
-      mr.start(200)
-      mediaRecorderRef.current = mr
-    } catch { /* audio capture is optional */ }
+    // ✅ KEY FIX: On mobile, MediaRecorder and SpeechRecognition BOTH need the
+    // microphone. When MediaRecorder grabs it first, SpeechRecognition silently
+    // fails to transcribe. Skip audio capture on mobile to avoid the conflict.
+    if (!isMobile()) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : ''
+        const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
+        mr.ondataavailable = (e) => {
+          if (e.data?.size > 0) audioChunksRef.current.push(e.data)
+        }
+        mr.onstop = () => {
+          const blob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' })
+          setAudioBlob(blob)
+          stream.getTracks().forEach(t => t.stop())
+        }
+        mr.start(200)
+        mediaRecorderRef.current = mr
+      } catch { /* audio capture is optional */ }
+    }
+
+    // ✅ FIX: On mobile, start SpeechRecognition with a tiny delay after any
+    // prior audio session has fully closed. Prevents "audio-capture" errors.
+    const startDelay = isMobile() ? 150 : 0
+    await new Promise(r => setTimeout(r, startDelay))
 
     const recognition = buildRecognition(lang)
     if (!recognition) return
@@ -233,9 +203,7 @@ setLiveText(interim)
     }
   }
 
-  /* "Done Recording" — flushes interim text immediately, stops cleanly */
   const handleDoneRecording = () => {
-    // Flush any pending interim into final right now — no waiting
     const pending = interimAccumRef.current.trim()
     if (pending) {
       finalAccumRef.current += pending + ' '
@@ -259,7 +227,6 @@ setLiveText(interim)
     setIsRecording(false)
   }
 
-  /* Hard stop — discards unconfirmed interim text */
   const stopRecording = () => {
     stoppedManuallyRef.current = true
     clearInterval(timerRef.current)
@@ -279,6 +246,10 @@ setLiveText(interim)
     if (!raw) return
     setCleaning(true)
     setError('')
+
+    // Strip the flag emoji to get just the language name (e.g. "Filipino", "Cebuano")
+    const langLabel = LANGS.find(l => l.code === lang)?.label?.replace(/^\S+\s*/, '') ?? 'the same language as the input'
+
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -286,13 +257,17 @@ setLiveText(interim)
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1000,
-          system: `You are a voice transcript cleaner. Clean the raw speech-to-text by:
-- Fixing punctuation and capitalization
-- Removing filler words (um, uh, like, you know, so, actually)
-- Fixing obvious speech recognition errors
-- Forming proper sentences and paragraphs
-- Keeping ALL original meaning intact
-Return ONLY the cleaned text. No explanations or preamble.`,
+          system: `You are a voice transcript cleaner. The speaker\'s language is: ${langLabel}.
+
+Rules:
+- KEEP the text in ${langLabel}. Do NOT translate it into English or any other language.
+- Fix punctuation and capitalization following ${langLabel} conventions.
+- Remove filler sounds natural to ${langLabel} (e.g. "uh", "um", "ay", "eh", "kuan", "ano ba", "yung" when used as fillers).
+- Fix obvious speech-to-text errors (wrong homophones, merged or split words).
+- Form proper sentences and paragraphs.
+- Preserve ALL original meaning.
+
+Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no preamble.`,
           messages: [{ role: 'user', content: raw }]
         })
       })
@@ -429,7 +404,7 @@ Return ONLY the cleaned text. No explanations or preamble.`,
             </div>
           )}
 
-          {/* Audio preview */}
+          {/* Audio preview — desktop only since mobile skips MediaRecorder */}
           {audioBlob && !isRecording && (
             <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
               <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
@@ -493,7 +468,6 @@ Return ONLY the cleaned text. No explanations or preamble.`,
           {/* ── Action buttons ── */}
           <div className="space-y-2 pt-1">
             {isRecording ? (
-              /* RECORDING STATE: big "Done Recording" + smaller "Cancel" */
               <div className="flex gap-2">
                 <button
                   onClick={handleDoneRecording}
@@ -512,7 +486,6 @@ Return ONLY the cleaned text. No explanations or preamble.`,
                 </button>
               </div>
             ) : (
-              /* IDLE STATE */
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={startRecording}
@@ -552,10 +525,10 @@ Return ONLY the cleaned text. No explanations or preamble.`,
           {/* Tips */}
           <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
             {isMobile()
-              ? <p>🎙 Tap <strong>Done Recording</strong> when finished — transcript appears instantly</p>
+              ? <p>🎙 Tap <strong>Done Recording</strong> when finished — transcript appears after each pause</p>
               : <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
             }
-            <p>💾 Saves both audio recording + transcript into your note</p>
+            <p>💾 {isMobile() ? 'Transcript saved into your note' : 'Saves both audio recording + transcript into your note'}</p>
           </div>
         </div>
       </div>
