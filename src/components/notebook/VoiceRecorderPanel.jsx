@@ -33,23 +33,31 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const [audioBlob, setAudioBlob]         = useState(null)
   const [audioDuration, setAudioDuration] = useState(0)
 
-  const recognitionRef      = useRef(null)
-  const finalAccumRef       = useRef('')
-  const interimAccumRef     = useRef('')
-  const stoppedManuallyRef  = useRef(false)
-  const isRecordingRef      = useRef(false)
-  const mediaRecorderRef    = useRef(null)
-  const audioChunksRef      = useRef([])
-  const timerRef            = useRef(null)
-  const durationRef         = useRef(0)
-  const restartTimerRef     = useRef(null)
+  const recognitionRef     = useRef(null)
+  const finalAccumRef      = useRef('')
+  const interimAccumRef    = useRef('')
+  const stoppedManuallyRef = useRef(false)
+  const isRecordingRef     = useRef(false)
+  const mediaRecorderRef   = useRef(null)
+  const audioChunksRef     = useRef([])
+  const timerRef           = useRef(null)
+  const durationRef        = useRef(0)
+  const restartTimerRef    = useRef(null)
+  const langRef            = useRef(lang)
+
+  // KEY FIX: spawnRef holds a function that always creates a BRAND NEW
+  // SpeechRecognition instance. Mobile browsers silently refuse to restart
+  // a used/ended SR object via .start() — a fresh instance works every time.
+  // We use a ref so onend/onerror closures can call it without stale closures.
+  const spawnRef = useRef(null)
+
+  useEffect(() => { langRef.current = lang }, [lang])
+  useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) setError('Speech Recognition not supported. Please use Chrome or Edge.')
   }, [])
-
-  useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
 
   useEffect(() => () => {
     clearInterval(timerRef.current)
@@ -67,35 +75,32 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
+  // Builds one single-use SpeechRecognition instance.
+  // onend/onerror always delegate restarts to spawnRef so they never
+  // try to call .start() on the same dead object.
   const buildRecognition = useCallback((langCode) => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) return null
 
     const mobile = isMobile()
     const r = new SR()
-    r.lang = langCode
-    r.continuous      = !mobile          // mobile: false is more reliable
-    r.interimResults  = !isIOS()         // ✅ FIX: iOS ignores interimResults and can misbehave; disable it
+    r.lang            = langCode
+    r.continuous      = !mobile
+    r.interimResults  = !isIOS()  // iOS misbehaves with interim results
     r.maxAlternatives = 1
 
     r.onresult = (e) => {
       let interim = '', newFinal = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) {
-          newFinal += t + ' '
-        } else {
-          interim += t
-        }
+        if (e.results[i].isFinal) newFinal += t + ' '
+        else interim += t
       }
-
       if (newFinal) {
         finalAccumRef.current += newFinal
         setFinalText(finalAccumRef.current)
         interimAccumRef.current = ''
       }
-
-      // On iOS interimResults is off, so interim will always be ''
       interimAccumRef.current = interim
       setLiveText(interim)
     }
@@ -105,20 +110,18 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         setError('Microphone access denied. Allow microphone in your browser settings.')
         stoppedManuallyRef.current = true
         setIsRecording(false)
+      } else if (e.error === 'audio-capture') {
+        setError('Microphone busy or unavailable. Close other apps using the mic and try again.')
+        stoppedManuallyRef.current = true
+        setIsRecording(false)
       } else if (e.error === 'network') {
-        // Mobile network blip — schedule restart
         if (!stoppedManuallyRef.current && isRecordingRef.current) {
           restartTimerRef.current = setTimeout(() => {
             if (!stoppedManuallyRef.current && isRecordingRef.current) {
-              try { recognitionRef.current?.start() } catch {}
+              spawnRef.current?.()
             }
-          }, 600) // ✅ FIX: longer delay for mobile network recovery
+          }, 800)
         }
-      } else if (e.error === 'audio-capture') {
-        // ✅ FIX: explicit message for mic-in-use errors on mobile
-        setError('Microphone is busy or unavailable. Close other apps using the mic and try again.')
-        stoppedManuallyRef.current = true
-        setIsRecording(false)
       } else if (e.error !== 'aborted' && e.error !== 'no-speech') {
         setError(`Recognition error: "${e.error}". Tap Start again to retry.`)
       }
@@ -128,11 +131,12 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       setLiveText('')
       interimAccumRef.current = ''
       if (!stoppedManuallyRef.current && isRecordingRef.current) {
-        // ✅ FIX: longer restart delay on mobile — 500ms gives the OS time to release the audio session
-        const delay = isMobile() ? 500 : 0
+        // Mobile needs extra time for the OS to fully release the audio session
+        // before the next instance opens it. Never reuse the ended object.
+        const delay = isMobile() ? 600 : 80
         restartTimerRef.current = setTimeout(() => {
           if (!stoppedManuallyRef.current && isRecordingRef.current) {
-            try { recognitionRef.current?.start() } catch {}
+            spawnRef.current?.()
           }
         }, delay)
       } else {
@@ -143,6 +147,32 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return r
   }, [])
 
+  // spawn() — builds a fresh SR instance and starts it.
+  // Updates recognitionRef so abort/stop always targets the live object.
+  const spawn = useCallback(() => {
+    const r = buildRecognition(langRef.current)
+    if (!r) return
+    recognitionRef.current = r
+    try {
+      r.start()
+    } catch {
+      // start() race condition — retry once
+      restartTimerRef.current = setTimeout(() => {
+        if (!stoppedManuallyRef.current && isRecordingRef.current) {
+          const r2 = buildRecognition(langRef.current)
+          if (r2) {
+            recognitionRef.current = r2
+            try { r2.start() } catch {}
+          }
+        }
+      }, 400)
+    }
+  }, [buildRecognition])
+
+  // Keep spawnRef current so closures inside buildRecognition always call
+  // the latest spawn without stale references
+  useEffect(() => { spawnRef.current = spawn }, [spawn])
+
   const startRecording = async () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) { setError('Not supported. Use Chrome or Edge.'); return }
@@ -152,16 +182,15 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     setFinalText('')
     setCleanedText('')
     setAudioBlob(null)
-    finalAccumRef.current   = ''
-    interimAccumRef.current = ''
+    finalAccumRef.current      = ''
+    interimAccumRef.current    = ''
     stoppedManuallyRef.current = false
-    durationRef.current = 0
+    durationRef.current        = 0
     setAudioDuration(0)
-    audioChunksRef.current = []
+    audioChunksRef.current     = []
 
-    // ✅ KEY FIX: On mobile, MediaRecorder and SpeechRecognition BOTH need the
-    // microphone. When MediaRecorder grabs it first, SpeechRecognition silently
-    // fails to transcribe. Skip audio capture on mobile to avoid the conflict.
+    // Skip MediaRecorder on mobile — both MediaRecorder and SpeechRecognition
+    // competing for the mic causes SR to receive no audio and produce nothing.
     if (!isMobile()) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -169,9 +198,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
           ? 'audio/webm'
           : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : ''
         const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
-        mr.ondataavailable = (e) => {
-          if (e.data?.size > 0) audioChunksRef.current.push(e.data)
-        }
+        mr.ondataavailable = (e) => { if (e.data?.size > 0) audioChunksRef.current.push(e.data) }
         mr.onstop = () => {
           const blob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' })
           setAudioBlob(blob)
@@ -182,25 +209,15 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       } catch { /* audio capture is optional */ }
     }
 
-    // ✅ FIX: On mobile, start SpeechRecognition with a tiny delay after any
-    // prior audio session has fully closed. Prevents "audio-capture" errors.
-    const startDelay = isMobile() ? 150 : 0
-    await new Promise(r => setTimeout(r, startDelay))
+    // Give the OS a moment to release any prior audio session on mobile
+    if (isMobile()) await new Promise(r => setTimeout(r, 200))
 
-    const recognition = buildRecognition(lang)
-    if (!recognition) return
-
-    try {
-      recognition.start()
-      recognitionRef.current = recognition
-      setIsRecording(true)
-      timerRef.current = setInterval(() => {
-        durationRef.current += 1
-        setAudioDuration(durationRef.current)
-      }, 1000)
-    } catch (err) {
-      setError(`Could not start: ${err.message}. Try refreshing.`)
-    }
+    spawn()
+    setIsRecording(true)
+    timerRef.current = setInterval(() => {
+      durationRef.current += 1
+      setAudioDuration(durationRef.current)
+    }, 1000)
   }
 
   const handleDoneRecording = () => {
@@ -211,19 +228,15 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       interimAccumRef.current = ''
     }
     setLiveText('')
-
     stoppedManuallyRef.current = true
     clearInterval(timerRef.current)
     clearTimeout(restartTimerRef.current)
-
     try { recognitionRef.current?.stop() } catch {}
     setTimeout(() => { try { recognitionRef.current?.abort() } catch {} }, 350)
-
     try {
       if (mediaRecorderRef.current?.state !== 'inactive')
         mediaRecorderRef.current?.stop()
     } catch {}
-
     setIsRecording(false)
   }
 
@@ -247,7 +260,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     setCleaning(true)
     setError('')
 
-    // Strip the flag emoji to get just the language name (e.g. "Filipino", "Cebuano")
     const langLabel = LANGS.find(l => l.code === lang)?.label?.replace(/^\S+\s*/, '') ?? 'the same language as the input'
 
     try {
@@ -257,7 +269,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1000,
-          system: `You are a voice transcript cleaner. The speaker\'s language is: ${langLabel}.
+          system: `You are a voice transcript cleaner. The speaker's language is: ${langLabel}.
 
 Rules:
 - KEEP the text in ${langLabel}. Do NOT translate it into English or any other language.
@@ -404,7 +416,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             </div>
           )}
 
-          {/* Audio preview — desktop only since mobile skips MediaRecorder */}
+          {/* Audio preview — desktop only */}
           {audioBlob && !isRecording && (
             <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
               <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
@@ -525,7 +537,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
           {/* Tips */}
           <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
             {isMobile()
-              ? <p>🎙 Tap <strong>Done Recording</strong> when finished — transcript appears after each pause</p>
+              ? <p>🎙 Tap <strong>Done Recording</strong> when finished — text appears after each pause</p>
               : <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
             }
             <p>💾 {isMobile() ? 'Transcript saved into your note' : 'Saves both audio recording + transcript into your note'}</p>
