@@ -89,7 +89,7 @@ export default function LoginPage() {
       <div className={`relative w-full max-w-md transition-all duration-500 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
 
         {/* Card */}
-        <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800/60 rounded-2xl p-8 shadow-2xl shadow-black/50">
+        <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800/60 rounded-2xl p-5 sm:p-8 shadow-2xl shadow-black/50">
 
           {/* Logo */}
           <div className="flex items-center gap-3 mb-8">

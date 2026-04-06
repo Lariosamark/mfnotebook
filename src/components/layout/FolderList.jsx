@@ -133,7 +133,9 @@ function FolderItem({ folder, active, onClick, onEdit, onDelete, isAdmin }) {
           <Pencil className="w-3 h-3" />
         </button>
         {menuOpen && (
-          <div className="absolute right-0 top-6 w-28 bg-white border border-gray-200 rounded-xl shadow-lg z-10 overflow-hidden">
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+            <div className="absolute right-0 top-7 w-32 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
             <button
               onClick={() => { onEdit(); setMenuOpen(false) }}
               className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
@@ -149,6 +151,7 @@ function FolderItem({ folder, active, onClick, onEdit, onDelete, isAdmin }) {
               </button>
             )}
           </div>
+          </>
         )}
       </div>
     </div>

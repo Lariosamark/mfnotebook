@@ -178,6 +178,58 @@
   outline-offset: 2px;
   border-radius: 12px;
 }
+/* ── Scrollbar utilities ─────────────────────────────── */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Mobile bottom sheet animation ──────────────────── */
+@keyframes slideUpSheet { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.animate-slide-up-sheet { animation: slideUpSheet 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* ── Touch-friendly tap targets ─────────────────────── */
+@media (max-width: 768px) {
+  button, [role="button"] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  /* Exception: icon-only tiny buttons inside tabs etc */
+  .tab-close-btn, .section-action-btn {
+    min-height: 24px;
+    min-width: 24px;
+  }
+}
+
+/* ── Safe area / notch support ───────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .fixed.bottom-0 {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ── Bottom sheet drag handle ────────────────────────── */
+.rounded-t-2xl::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  background: #d1d5db;
+  border-radius: 99px;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+@media (min-width: 768px) {
+  /* Hide drag handle on desktop — panels aren't bottom sheets there */
+  .md\:rounded-none::before,
+  .md\:relative::before {
+    display: none;
+  }
+}
+
 /* ── Responsive Editor Fixes ─────────────────────────── */
 /* Ensure voice recorder modal is always on top of maps */
 .fixed.z-\[9999\] {

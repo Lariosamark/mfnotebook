@@ -148,11 +148,11 @@ export default function ShareModal({ page, notebook, section, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden animate-scale-in">
+      <div className="w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-100 overflow-hidden animate-scale-in max-h-[92vh] flex flex-col">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
@@ -189,7 +189,7 @@ export default function ShareModal({ page, notebook, section, onClose }) {
           ))}
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
 
           {activeTab === 'email' && (
             <>
@@ -245,7 +245,7 @@ export default function ShareModal({ page, notebook, section, onClose }) {
               {/* Email clients */}
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2.5">Open with</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {SHARE_TARGETS.map(target => {
                     const Icon = target.icon
                     return (

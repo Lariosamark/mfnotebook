@@ -299,12 +299,12 @@ function UserDetailPanel({ user, notebooks, folders, tab, onTabChange, onSelectP
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
-        <div className="flex items-start gap-4 flex-wrap sm:flex-nowrap">
+        <div className="flex items-start gap-3 flex-wrap">
           <Avatar name={user.full_name} size="lg" />
           <div className="flex-1 min-w-0">
             <h2 className="text-lg font-bold text-gray-900 truncate">{user.full_name}</h2>
             <p className="text-sm text-gray-400 flex items-center gap-1.5 mt-0.5">
-              <Mail className="w-3.5 h-3.5"/>{user.email}
+              <Mail className="w-3.5 h-3.5 flex-shrink-0"/><span className="truncate">{user.email}</span>
             </p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className={`text-xs px-2.5 py-1 rounded-full font-semibold border ${
@@ -315,24 +315,24 @@ function UserDetailPanel({ user, notebooks, folders, tab, onTabChange, onSelectP
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             {user.role==='employee'
               ? <button onClick={() => onRoleChange(user.id,'admin')}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-violet-700 border border-violet-200 transition-colors font-medium">
-                  <Crown className="w-3 h-3"/> Promote
+                  className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-violet-100 hover:bg-violet-200 text-violet-700 border border-violet-200 transition-colors font-medium">
+                  <Crown className="w-3 h-3"/> Promote to Admin
                 </button>
               : <button onClick={() => onRoleChange(user.id,'employee')}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 transition-colors font-medium">
+                  className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 transition-colors font-medium">
                   <User className="w-3 h-3"/> Set Employee
                 </button>
             }
             <button onClick={onDelete}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 transition-colors font-medium">
-              <Trash2 className="w-3 h-3"/> Remove
+              className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 transition-colors font-medium">
+              <Trash2 className="w-3 h-3"/> Remove User
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-1 mt-4 bg-gray-100 rounded-xl p-1 w-fit">
+        <div className="flex items-center gap-1 mt-4 bg-gray-100 rounded-xl p-1 w-fit max-w-full overflow-x-auto">
           <TabBtn active={tab==='notebooks'} onClick={() => onTabChange('notebooks')}
             icon={<BookOpen className="w-3.5 h-3.5"/>} label={`Notebooks (${notebooks.length})`} />
           <TabBtn active={tab==='folders'} onClick={() => onTabChange('folders')}
@@ -480,7 +480,7 @@ function AdminPageView({ page, comments, commentText, setCommentText, onSendComm
 
   return (
     <div className="flex flex-col h-full animate-fade-in">
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-3 py-2 flex items-center gap-1.5 flex-wrap sm:flex-nowrap overflow-x-auto">
         <button onClick={onBack}
           className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-medium px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0">
           ← Back
@@ -500,11 +500,11 @@ function AdminPageView({ page, comments, commentText, setCommentText, onSendComm
         </button>
       </div>
       <div className="flex flex-1 overflow-hidden min-h-0 flex-col md:flex-row">
-        <div className="flex-1 overflow-hidden border-b md:border-b-0 md:border-r border-gray-200 min-w-0" style={{minHeight: '60%'}}>
+        <div className="flex-1 overflow-hidden border-b md:border-b-0 md:border-r border-gray-200 min-w-0" style={{minHeight: '55%'}}>
           <NoteEditor key={`${page.id}-${editorMode}`} content={page.content}
             onChange={editorMode ? onUpdatePage : undefined} readOnly={!editorMode}/>
         </div>
-        <div className="md:w-72 lg:w-80 flex-shrink-0 flex flex-col bg-white" style={{maxHeight: '40%', minHeight: 200}}>
+        <div className="md:w-72 lg:w-80 flex-shrink-0 flex flex-col bg-white" style={{maxHeight: '45%', minHeight: 180}}>
           <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2 flex-shrink-0">
             <MessageSquare className="w-4 h-4 text-violet-500"/>
             <h3 className="text-sm font-semibold text-gray-800">Comments</h3>

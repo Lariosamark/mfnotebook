@@ -75,7 +75,7 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
     <div className="flex flex-col h-full app-editor-area">
       {/* Slim metadata bar */}
       <div className="flex-shrink-0 border-b border-gray-100 bg-white">
-        <div className="flex items-center gap-3 px-6 py-2.5">
+        <div className="flex items-center gap-2 px-3 sm:px-6 py-2.5 overflow-x-auto">
           {viewerMode ? (
             <span className="flex items-center gap-1.5 text-xs bg-amber-50 text-amber-600 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
               👁 View Only
@@ -135,7 +135,10 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
 
         {/* Comments panel */}
         {showComments && (
-          <div className="w-full md:w-72 flex flex-col bg-gray-50 flex-shrink-0 animate-slide-in-right border-l border-gray-200 absolute md:relative inset-0 md:inset-auto z-10 md:z-auto">
+          <>
+            {/* Mobile backdrop */}
+            <div className="fixed inset-0 bg-black/40 z-10 md:hidden" onClick={() => setShowComments(false)} />
+            <div className="fixed inset-x-0 bottom-0 h-[70%] md:relative md:h-auto md:inset-auto md:w-72 flex flex-col bg-gray-50 flex-shrink-0 animate-slide-up-sheet md:animate-slide-in-right border-t md:border-t-0 md:border-l border-gray-200 z-20 md:z-auto rounded-t-2xl md:rounded-none shadow-2xl md:shadow-none">
             <div className="px-4 py-3 border-b border-gray-200 bg-white">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
@@ -217,6 +220,7 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
               </form>
             </div>
           </div>
+          </>
         )}
       </div>
 

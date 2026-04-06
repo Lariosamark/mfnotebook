@@ -231,7 +231,7 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); onMenuClose() }} />
-              <div className="absolute right-2 top-7 w-44 bg-white border border-gray-200 rounded-xl shadow-lifted z-50 animate-scale-in overflow-hidden">
+              <div className="absolute right-0 top-8 w-44 bg-white border border-gray-200 rounded-xl shadow-lifted z-50 animate-scale-in overflow-hidden">
                 <button onClick={(e) => { e.stopPropagation(); onAddSection() }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-brand-50 hover:text-brand-700 font-medium transition-colors">
                   <Plus className="w-3.5 h-3.5 text-brand-500" /> Add Section
@@ -308,7 +308,7 @@ function NotebookRow({ nb, expanded, onToggle, onSelectSection, onEdit, onDelete
                           {sectionMenuId === s.id && (
                             <>
                               <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setSectionMenuId(null) }} />
-                              <div className="absolute right-0 top-6 w-36 bg-white border border-gray-200 rounded-xl shadow-lifted z-50 animate-scale-in overflow-hidden">
+                              <div className="absolute right-0 top-7 w-36 bg-white border border-gray-200 rounded-xl shadow-lifted z-50 animate-scale-in overflow-hidden">
                                 <button onClick={(e) => { e.stopPropagation(); setEditSection(s); setSectionMenuId(null) }}
                                   className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 font-medium">
                                   <Pencil className="w-3 h-3 text-gray-400" /> Rename
@@ -415,12 +415,12 @@ function NotebookAccessModal({ notebook, onClose, onSaved }) {
   const selectedCount = [...selected].filter(id => teammates.some(e => e.id === id)).length
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{ background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(8px)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
 
-      <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden animate-scale-in flex flex-col"
-        style={{ maxHeight: '90vh' }}>
+      <div className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-scale-in flex flex-col"
+        style={{ maxHeight: '92vh' }}>
 
         {/* ── Header with gradient ── */}
         <div className="relative px-6 pt-6 pb-5 flex-shrink-0"
@@ -444,7 +444,7 @@ function NotebookAccessModal({ notebook, onClose, onSaved }) {
           </div>
 
           {/* Stats bar */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
             <div className="flex-1 bg-white/15 rounded-2xl px-4 py-2.5 flex items-center gap-2.5">
               <Users className="w-4 h-4 text-green-200 flex-shrink-0" />
               <div>

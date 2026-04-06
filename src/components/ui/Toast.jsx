@@ -26,8 +26,14 @@ export default function Toast() {
 export function Modal({ open, onClose, title, children, size = 'md' }) {
   useEffect(() => {
     const h = (e) => { if (e.key === 'Escape') onClose() }
-    if (open) document.addEventListener('keydown', h)
-    return () => document.removeEventListener('keydown', h)
+    if (open) {
+      document.addEventListener('keydown', h)
+      document.body.style.overflow = 'hidden'
+    }
+    return () => {
+      document.removeEventListener('keydown', h)
+      document.body.style.overflow = ''
+    }
   }, [open, onClose])
 
   if (!open) return null
@@ -35,19 +41,19 @@ export function Modal({ open, onClose, title, children, size = 'md' }) {
   const sizes = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-2xl', xl: 'max-w-4xl' }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-white/70 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative w-full ${sizes[size]} bg-gray-50 rounded-2xl shadow-lifted border border-gray-200 animate-scale-in overflow-hidden`}>
+      <div className={`relative w-full ${sizes[size]} bg-gray-50 rounded-t-2xl sm:rounded-2xl shadow-lifted border border-gray-200 animate-scale-in overflow-hidden max-h-[92vh] flex flex-col`}>
         {title && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
             <h2 className="font-semibold text-gray-900">{title}</h2>
             <button onClick={onClose}
-              className="text-gray-9000 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+              className="text-gray-600 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
-        <div className="p-6">{children}</div>
+        <div className="p-5 sm:p-6 overflow-y-auto flex-1">{children}</div>
       </div>
     </div>
   )

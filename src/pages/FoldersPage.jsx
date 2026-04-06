@@ -51,7 +51,7 @@ export default function FoldersPage() {
       {activeFolder ? (
         <>
           {/* Gallery Header */}
-          <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-200 bg-white/60 backdrop-blur-sm flex-shrink-0">
+          <div className="flex items-center gap-2 px-3 sm:px-6 py-3 sm:py-4 border-b border-slate-200 bg-white/60 backdrop-blur-sm flex-shrink-0 flex-wrap sm:flex-nowrap">
             <button
               onClick={() => setSidebarOpen(true)}
               className="lg:hidden text-slate-400 hover:text-slate-800 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
@@ -82,9 +82,11 @@ export default function FoldersPage() {
               </div>
               <button
                 onClick={() => setUploadOpen(true)}
-                className="flex items-center gap-1.5 text-xs bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 text-xs bg-brand-600 hover:bg-brand-700 text-white px-2.5 sm:px-3 py-2 rounded-lg transition-colors flex-shrink-0"
               >
-                <Upload className="w-3.5 h-3.5" /> Upload Images
+                <Upload className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Upload Images</span>
+                <span className="sm:hidden">Upload</span>
               </button>
             </div>
           </div>
@@ -283,7 +285,7 @@ function UploadModal({ folderId, onClose, onUploaded, addImage }) {
         {files.length > 0 && (
           <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
             {files.map(f => (
-              <div key={f.name} className="flex items-center gap-3 bg-slate-100 rounded-xl p-3">
+              <div key={f.name} className="flex items-start sm:items-center gap-3 bg-slate-100 rounded-xl p-3 flex-wrap sm:flex-nowrap">
                 <img src={URL.createObjectURL(f)} alt={f.name} className="w-12 h-10 object-cover rounded-lg flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-slate-800 truncate">{f.name}</p>
@@ -293,7 +295,7 @@ function UploadModal({ folderId, onClose, onUploaded, addImage }) {
                   value={captions[f.name] || ''}
                   onChange={e => setCaptions({ ...captions, [f.name]: e.target.value })}
                   placeholder="Caption…"
-                  className="w-32 bg-slate-200 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-400"
+                  className="w-full sm:w-32 bg-slate-200 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-400"
                 />
                 <button onClick={() => setFiles(prev => prev.filter(x => x.name !== f.name))}
                   className="text-slate-400 hover:text-red-400 transition-colors flex-shrink-0">

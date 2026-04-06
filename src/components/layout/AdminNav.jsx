@@ -199,7 +199,9 @@ function UserItem({ user, active, onClick, onRoleChange, onDelete }) {
           </svg>
         </button>
         {menuOpen && (
-          <div className="absolute right-0 top-6 w-40 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+            <div className="absolute right-0 top-6 w-40 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
             {user.role === 'employee'
               ? <button onClick={() => { onRoleChange(user.id, 'admin'); setMenuOpen(false) }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs text-violet-600 hover:bg-violet-50 transition-colors">
@@ -215,6 +217,7 @@ function UserItem({ user, active, onClick, onRoleChange, onDelete }) {
               <Trash2 className="w-3 h-3"/> Remove User
             </button>
           </div>
+          </>
         )}
       </div>
     </div>

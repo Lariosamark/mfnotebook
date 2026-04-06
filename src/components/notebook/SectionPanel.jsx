@@ -34,16 +34,16 @@ export function PageTabs({ section, onSelectPage, viewerMode = false }) {
 
   return (
     <>
-      <div className="flex items-center border-b border-gray-200 bg-white overflow-x-auto flex-shrink-0"
-        style={{ minHeight: '38px' }}>
+      <div className="flex items-center border-b border-gray-200 bg-white flex-shrink-0 overflow-hidden"
+        style={{ minHeight: '42px' }}>
 
-        {/* Section color dot only — title is shown in browser tab, not here */}
+        {/* Section color dot */}
         <div className="flex items-center px-3 border-r border-gray-200 flex-shrink-0 h-full">
           <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: section.color }} />
         </div>
 
         {/* Page tabs */}
-        <div className="flex items-end h-full overflow-x-auto flex-1 px-1">
+        <div className="flex items-end h-full overflow-x-auto flex-1 px-1 scrollbar-none" style={{ scrollbarWidth: 'none' }}>
           {loading
             ? Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="h-6 w-24 rounded bg-gray-100 animate-pulse mx-1 my-auto" />
@@ -52,7 +52,7 @@ export function PageTabs({ section, onSelectPage, viewerMode = false }) {
                 const isActive = activePage?.id === p.id
                 return (
                   <div key={p.id}
-                    className={`group relative flex items-center gap-1.5 px-3 py-1.5 cursor-pointer whitespace-nowrap transition-all flex-shrink-0 text-xs font-medium border-b-2 mx-0.5 ${
+                    className={`group relative flex items-center gap-1.5 px-3 py-2 cursor-pointer whitespace-nowrap transition-all flex-shrink-0 text-xs font-medium border-b-2 mx-0.5 ${
                       isActive
                         ? 'text-brand-700 border-brand-500 bg-brand-50'
                         : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
