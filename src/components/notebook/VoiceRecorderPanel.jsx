@@ -64,33 +64,43 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
-  const buildRecognition = useCallback((langCode) => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) return null
+const buildRecognition = useCallback((langCode) => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SR) return null
 
-    const mobile = isMobile()
-    const r = new SR()
-    r.lang = langCode
-    // Mobile: continuous=false is more reliable; we auto-restart after each utterance
-    r.continuous      = !mobile
-    r.interimResults  = true
-    r.maxAlternatives = 1
+  const r = new SR()
 
-    r.onresult = (e) => {
-      let interim = '', newFinal = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) newFinal += t + ' '
-        else interim += t
+  r.lang = langCode
+
+  // FIXED
+  r.continuous = true
+  r.interimResults = true
+  r.maxAlternatives = 1
+
+  r.onresult = (e) => {
+    console.log("Speech result received:", e) // debug
+
+    let interim = '', newFinal = ''
+
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript
+
+      if (e.results[i].isFinal) {
+        newFinal += t + ' '
+      } else {
+        interim += t
       }
-      if (newFinal) {
-        finalAccumRef.current += newFinal
-        setFinalText(finalAccumRef.current)
-        interimAccumRef.current = ''
-      }
-      interimAccumRef.current = interim
-      setLiveText(interim)
     }
+
+    if (newFinal) {
+      finalAccumRef.current += newFinal
+      setFinalText(finalAccumRef.current)
+      interimAccumRef.current = ''
+    }
+
+    interimAccumRef.current = interim
+    setLiveText(interim)
+  }
 
     r.onerror = (e) => {
       if (e.error === 'not-allowed') {
