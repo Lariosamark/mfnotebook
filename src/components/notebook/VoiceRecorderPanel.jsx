@@ -111,21 +111,24 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       }
     }
 
-    r.onend = () => {
-      setLiveText('')
-      interimAccumRef.current = ''
-      if (!stoppedManuallyRef.current && isRecordingRef.current) {
-        // Auto-restart — mobile needs a brief delay
-        const delay = isMobile() ? 200 : 0
-        restartTimerRef.current = setTimeout(() => {
-          if (!stoppedManuallyRef.current && isRecordingRef.current) {
-            try { recognitionRef.current?.start() } catch {}
-          }
-        }, delay)
-      } else {
-        setIsRecording(false)
+   r.onend = () => {
+  setLiveText('')
+  interimAccumRef.current = ''
+
+  if (!stoppedManuallyRef.current && isRecordingRef.current) {
+
+    // Longer delay for mobile stability
+    const delay = isMobile() ? 800 : 0
+
+    restartTimerRef.current = setTimeout(() => {
+      try {
+        recognitionRef.current?.start()
+      } catch (err) {
+        console.log('Restart failed:', err)
       }
-    }
+    }, delay)
+  }
+}
 
     return r
   }, [])
