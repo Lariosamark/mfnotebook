@@ -80,26 +80,31 @@ const buildRecognition = useCallback((langCode) => {
   r.onresult = (e) => {
     console.log("Speech result received:", e) // debug
 
-    let interim = '', newFinal = ''
+let interim = ''
+let newFinal = ''
 
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript
+for (let i = e.resultIndex; i < e.results.length; i++) {
 
-      if (e.results[i].isFinal) {
-        newFinal += t + ' '
-      } else {
-        interim += t
-      }
-    }
+  const result = e.results[i]
+  const text = result[0].transcript
 
-    if (newFinal) {
-      finalAccumRef.current += newFinal
-      setFinalText(finalAccumRef.current)
-      interimAccumRef.current = ''
-    }
+  if (result.isFinal) {
+    newFinal += text + ' '
+  } else {
+    interim += text
+  }
 
-    interimAccumRef.current = interim
-    setLiveText(interim)
+}
+
+if (newFinal) {
+
+  finalAccumRef.current += newFinal
+  setFinalText(finalAccumRef.current)
+
+}
+
+interimAccumRef.current = interim
+setLiveText(interim)
   }
 
     r.onerror = (e) => {
@@ -121,25 +126,40 @@ const buildRecognition = useCallback((langCode) => {
       }
     }
 
-   r.onend = () => {
+  r.onend = () => {
+
+  // flush interim to final before restart
+  const pending = interimAccumRef.current.trim()
+
+  if (pending) {
+    finalAccumRef.current += pending + ' '
+    setFinalText(finalAccumRef.current)
+    interimAccumRef.current = ''
+  }
+
   setLiveText('')
-  interimAccumRef.current = ''
 
   if (!stoppedManuallyRef.current && isRecordingRef.current) {
 
-    // Longer delay for mobile stability
-    const delay = isMobile() ? 800 : 0
+    const delay = isMobile() ? 1200 : 0
 
     restartTimerRef.current = setTimeout(() => {
-      try {
-        recognitionRef.current?.start()
-      } catch (err) {
-        console.log('Restart failed:', err)
-      }
-    }, delay)
-  }
-}
 
+      if (!stoppedManuallyRef.current && isRecordingRef.current) {
+
+        try {
+          recognitionRef.current?.start()
+        } catch (err) {
+          console.log('Restart failed:', err)
+        }
+
+      }
+
+    }, delay)
+
+  }
+
+}
     return r
   }, [])
 
