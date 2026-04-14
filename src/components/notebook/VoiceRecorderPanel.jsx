@@ -39,12 +39,10 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const stoppedRef       = useRef(false)
   const isRecordingRef   = useRef(false)
   const mediaRecorderRef = useRef(null)
-  const mediaStreamRef   = useRef(null)
   const audioChunksRef   = useRef([])
   const timerRef         = useRef(null)
   const durationRef      = useRef(0)
   const restartTimerRef  = useRef(null)
-  const safetyTimerRef   = useRef(null)
   const langRef          = useRef(lang)
   const spawnRef         = useRef(null)
   const generationRef    = useRef(0)
@@ -54,9 +52,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      setError('Speech Recognition not supported. Please use Chrome or Edge.')
-    }
+    if (!SR) setError('Speech Recognition not supported. Please use Chrome or Edge.')
   }, [])
 
   useEffect(() => () => {
@@ -64,14 +60,10 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     generationRef.current += 1
     clearInterval(timerRef.current)
     clearTimeout(restartTimerRef.current)
-    clearTimeout(safetyTimerRef.current)
     try { recognitionRef.current?.abort() } catch {}
     try {
       if (mediaRecorderRef.current?.state !== 'inactive')
         mediaRecorderRef.current?.stop()
-    } catch {}
-    try {
-      mediaStreamRef.current?.getTracks().forEach(t => t.stop())
     } catch {}
   }, [])
 
@@ -81,91 +73,38 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
-  const clearAllTimers = () => {
+  const clearTimers = () => {
     clearInterval(timerRef.current)
     clearTimeout(restartTimerRef.current)
-    clearTimeout(safetyTimerRef.current)
   }
-
-  // ── Stop MediaRecorder cleanly ──
-  const stopMediaRecorder = () => {
-    const mr = mediaRecorderRef.current
-    if (mr?.state !== 'inactive') {
-      try { mr.stop() } catch {}
-    }
-    mediaRecorderRef.current = null
-  }
-
-  // ── Start MediaRecorder (called AFTER SR has the mic) ──
-  const startMediaRecorder = useCallback(async (gen) => {
-    if (gen !== generationRef.current) return
-    if (isIOS()) return  // iOS SR monopolizes the mic — impossible to share
-    if (mediaRecorderRef.current) return  // already recording
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      mediaStreamRef.current = stream
-
-      // Pick best supported MIME for mobile playback
-      let mimeType = ''
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus'
-      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-        mimeType = 'audio/mp4'
-      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-        mimeType = 'audio/webm'
-      }
-
-      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
-      mr.ondataavailable = (e) => {
-        if (e.data?.size > 0) audioChunksRef.current.push(e.data)
-      }
-      mr.onstop = () => {
-        if (gen !== generationRef.current) return
-        const blob = new Blob(audioChunksRef.current, {
-          type: mimeType || 'audio/webm',
-        })
-        setAudioBlob(blob)
-        try { stream.getTracks().forEach(t => t.stop()) } catch {}
-        mediaStreamRef.current = null
-      }
-      mr.onerror = () => {
-        // MR failed — transcript still works, just no audio file
-        try { stream.getTracks().forEach(t => t.stop()) } catch {}
-        mediaStreamRef.current = null
-      }
-
-      mr.start(200)
-      mediaRecorderRef.current = mr
-    } catch {
-      // getUserMedia denied or unavailable — transcript still works
-    }
-  }, [])
 
   /*
-   * ══════════════════════════════════════════════════════════
-   *  MOBILE AUDIO + TRANSCRIPT STRATEGY
-   * ══════════════════════════════════════════════════════════
+   * ══════════════════════════════════════════════════════════════
+   *  MOBILE MICROPHONE LIMITATION — READ THIS BEFORE CHANGING
+   * ══════════════════════════════════════════════════════════════
    *
-   *  Problem: Mobile mic is exclusive — only ONE API at a time.
+   *  On mobile browsers (iOS Safari, Android Chrome), the
+   *  microphone is EXCLUSIVE — only ONE Web API can use it.
    *
-   *  Solution — ORDER MATTERS:
-   *    1. Start SpeechRecognition FIRST → it grabs the mic
-   *    2. In onstart callback, start MediaRecorder AFTER
+   *  • SpeechRecognition needs the mic → transcript works
+   *  • MediaRecorder (getUserMedia) needs the mic → audio file works
    *
-   *  Why this works:
-   *    ANDROID: When SR already holds the mic, getUserMedia()
-   *             shares the same underlying audio stream instead
-   *             of stealing it. Both work simultaneously.
+   *  Running BOTH = getUserMedia steals the mic from SR =
+   *  SR receives SILENCE = ZERO transcript.
    *
-   *    IOS:     SR uses Apple's system-level dictation engine
-   *             which completely locks the mic at the OS level.
-   *             getUserMedia() will fail or get silence.
-   *             → Audio recording is IMPOSSIBLE on iOS.
-   *             → We skip MediaRecorder and show a clear message.
+   *  This has been tested in every possible order:
+   *    - MR first, then SR   → SR gets silence
+   *    - SR first, then MR   → SR gets silence (MR steals it back)
+   *    - MR in onstart       → SR gets silence
+   *    - MR with constraints → SR gets silence
    *
-   *    DESKTOP: OS multiplexes audio freely — both always work.
-   * ══════════════════════════════════════════════════════════
+   *  THERE IS NO WORKAROUND. This is a browser/OS limitation.
+   *  iOS: SR uses Apple's dictation engine (OS-level mic lock)
+   *  Android: getUserMedia revokes the audio input from SR
+   *
+   *  SOLUTION: Mobile = transcript only. Desktop = both.
+   *  Do NOT add getUserMedia anywhere in the mobile path.
+   * ══════════════════════════════════════════════════════════════
    */
 
   const buildRecognition = useCallback((langCode, gen) => {
@@ -173,25 +112,14 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     if (!SR) return null
 
     const ios = isIOS()
-
     const r = new SR()
     r.lang            = langCode
     r.continuous      = !ios
     r.interimResults  = !ios
     r.maxAlternatives = 1
 
-    // ── onstart: SR has the mic — NOW try MediaRecorder ──
-    r.onstart = () => {
-      if (gen !== generationRef.current) return
-      // SR successfully started and has the mic.
-      // On Android/desktop, getUserMedia will now SHARE the stream.
-      // On iOS, this is a no-op (startMediaRecorder checks isIOS).
-      startMediaRecorder(gen)
-    }
-
     r.onresult = (e) => {
       if (gen !== generationRef.current) return
-      clearTimeout(safetyTimerRef.current)
 
       let interim = '', newFinal = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -215,15 +143,13 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         case 'not-allowed':
           setError('Microphone access denied. Allow it in your browser settings.')
           stoppedRef.current = true
-          clearAllTimers()
-          stopMediaRecorder()
+          clearTimers()
           setIsRecording(false)
           break
         case 'audio-capture':
           setError('Microphone busy or unavailable. Close other apps using the mic.')
           stoppedRef.current = true
-          clearAllTimers()
-          stopMediaRecorder()
+          clearTimers()
           setIsRecording(false)
           break
         case 'network':
@@ -255,6 +181,9 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         return
       }
 
+      // iOS: continuous=false, onend fires after every utterance → restart
+      // Android: continuous=true, onend fires between utterances on some devices → restart
+      // Desktop: continuous=true, onend shouldn't fire but if it does → restart
       const delay = ios ? 300 : 150
       clearTimeout(restartTimerRef.current)
       restartTimerRef.current = setTimeout(() => {
@@ -262,18 +191,10 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
           spawnRef.current?.()
         }
       }, delay)
-
-      // Safety net: if no results for 5s, try one more spawn
-      clearTimeout(safetyTimerRef.current)
-      safetyTimerRef.current = setTimeout(() => {
-        if (gen === generationRef.current && !stoppedRef.current && isRecordingRef.current) {
-          spawnRef.current?.()
-        }
-      }, 5000)
     }
 
     return r
-  }, [startMediaRecorder])
+  }, [])
 
   const spawn = useCallback(() => {
     const gen = generationRef.current
@@ -314,15 +235,35 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     durationRef.current     = 0
     setAudioDuration(0)
     audioChunksRef.current  = []
-    mediaRecorderRef.current = null
-    mediaStreamRef.current   = null
     generationRef.current  += 1
-    clearAllTimers()
+    clearTimers()
+
+    // ── MediaRecorder: DESKTOP ONLY ──
+    // NEVER call getUserMedia on mobile — it kills SpeechRecognition.
+    if (!isMobile()) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/mp4')
+            ? 'audio/mp4'
+            : 'audio/webm'
+        const mr = new MediaRecorder(stream, { mimeType })
+        mr.ondataavailable = (e) => {
+          if (e.data?.size > 0) audioChunksRef.current.push(e.data)
+        }
+        mr.onstop = () => {
+          const blob = new Blob(audioChunksRef.current, { type: mimeType })
+          setAudioBlob(blob)
+          stream.getTracks().forEach(t => t.stop())
+        }
+        mr.start(200)
+        mediaRecorderRef.current = mr
+      } catch { /* audio is optional */ }
+    }
 
     if (isMobile()) await new Promise(r => setTimeout(r, 150))
 
-    // SR starts FIRST — it gets the mic
-    // MediaRecorder starts in onstart callback (shares the stream on Android)
     spawn()
     setIsRecording(true)
     timerRef.current = setInterval(() => {
@@ -344,7 +285,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     interimAccumRef.current = ''
     stoppedRef.current      = true
     generationRef.current  += 1
-    clearAllTimers()
+    clearTimers()
 
     const rec = recognitionRef.current
     recognitionRef.current = null
@@ -353,7 +294,10 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       setTimeout(() => { try { rec.abort() } catch {} }, 300)
     }
 
-    stopMediaRecorder()
+    const mr = mediaRecorderRef.current
+    if (mr?.state !== 'inactive') try { mr.stop() } catch {}
+    mediaRecorderRef.current = null
+
     setIsRecording(false)
   }, [])
 
@@ -486,6 +430,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
 
         {/* ── Body ── */}
         <div className="p-4 space-y-3 overflow-y-auto flex-1">
+
           {/* Language selector */}
           {!isRecording && !hasContent && (
             <div>
@@ -501,6 +446,17 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
                   <option key={l.code} value={l.code}>{l.label}</option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {/* Mobile info banner — shown before recording starts */}
+          {!isRecording && !hasContent && isMobile() && (
+            <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
+              <span className="text-base leading-none mt-0.5">ℹ️</span>
+              <span>
+                Mobile browsers only allow <strong>one feature</strong> to use the microphone at a time.
+                Your transcript will be saved — audio playback is available on desktop.
+              </span>
             </div>
           )}
 
@@ -526,7 +482,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             </div>
           )}
 
-          {/* Audio preview */}
+          {/* Audio preview — desktop only (never appears on mobile) */}
           {audioBlob && !isRecording && (
             <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
               <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
@@ -606,7 +562,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
                 </button>
                 <button
                   onClick={stopRecording}
-                  title="Stop without saving interim text"
+                  title="Discard recording"
                   className="flex items-center gap-2 px-4 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm font-semibold rounded-xl transition-colors"
                 >
                   <Square className="w-4 h-4" />
@@ -652,20 +608,17 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             )}
           </div>
 
-          {/* Platform tips */}
+          {/* Tips */}
           <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
             {isIOS() ? (
-              <>
-                <p>📱 Use <strong>Safari</strong> — Chrome doesn't support voice recognition on iOS</p>
-                <p>⚠️ iOS limits mic to one app at a time — transcript only, no audio file</p>
-              </>
+              <p>📱 Use <strong>Safari</strong> — Chrome doesn't support voice recognition on iOS</p>
             ) : isMobile() ? (
-              <p>📱 Use <strong>Chrome</strong> — saves both transcript + audio on Android</p>
+              <p>📱 Use <strong>Chrome</strong> for best results on Android</p>
             ) : (
               <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
             )}
             <p>
-              💾 {isMobile() && isIOS()
+              💾 {isMobile()
                 ? 'Transcript saved into your note'
                 : 'Saves both audio recording + transcript into your note'}
             </p>
