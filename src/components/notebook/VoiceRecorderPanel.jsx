@@ -1,75 +1,76 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { CheckCheck, Mic, Sparkles, Square, X, StopCircle } from 'lucide-react'
 
-const LANGS = [
-  { code: 'en-US',  label: '🇺🇸 English (US)' },
-  { code: 'en-GB',  label: '🇬🇧 English (UK)' },
+const LANGUAGES = [
+  { code: 'en-US', label: '🇺🇸 English (US)' },
+  { code: 'en-GB', label: '🇬🇧 English (UK)' },
   { code: 'fil-PH', label: '🇵🇭 Filipino' },
   { code: 'ceb-PH', label: '🇵🇭 Cebuano' },
-  { code: 'es-ES',  label: '🇪🇸 Spanish' },
-  { code: 'zh-CN',  label: '🇨🇳 Chinese' },
-  { code: 'ja-JP',  label: '🇯🇵 Japanese' },
-  { code: 'ko-KR',  label: '🇰🇷 Korean' },
-  { code: 'fr-FR',  label: '🇫🇷 French' },
-  { code: 'de-DE',  label: '🇩🇪 German' },
+  { code: 'es-ES', label: '🇪🇸 Spanish' },
+  { code: 'zh-CN', label: '🇨🇳 Chinese' },
+  { code: 'ja-JP', label: '🇯🇵 Japanese' },
+  { code: 'ko-KR', label: '🇰🇷 Korean' },
+  { code: 'fr-FR', label: '🇫🇷 French' },
+  { code: 'de-DE', label: '🇩🇪 German' },
 ]
 
-const isMobile = () =>
-  typeof navigator !== 'undefined' &&
-  /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+const isMobileDevice = () =>
+  typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
-const isIOS = () =>
-  typeof navigator !== 'undefined' &&
-  /iPhone|iPad|iPod/i.test(navigator.userAgent)
+const isIOSDevice = () =>
+  typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)
 
 export default function VoiceRecorderPanel({ onInsert, onClose }) {
-  const [isRecording, setIsRecording]     = useState(false)
-  const [liveText, setLiveText]           = useState('')
-  const [finalText, setFinalText]         = useState('')
-  const [cleaning, setCleaning]           = useState(false)
-  const [cleanedText, setCleanedText]     = useState('')
-  const [error, setError]                 = useState('')
-  const [lang, setLang]                   = useState('en-US')
-  const [audioBlob, setAudioBlob]         = useState(null)
+  const [isRecording, setIsRecording] = useState(false)
+  const [liveText, setLiveText] = useState('')
+  const [finalText, setFinalText] = useState('')
+  const [isCleaning, setIsCleaning] = useState(false)
+  const [cleanedText, setCleanedText] = useState('')
+  const [error, setError] = useState('')
+  const [language, setLanguage] = useState('en-US')
+  const [audioBlob, setAudioBlob] = useState(null)
   const [audioDuration, setAudioDuration] = useState(0)
 
-  const recognitionRef   = useRef(null)
-  const finalAccumRef    = useRef('')
-  const interimAccumRef  = useRef('')
-  const stoppedRef       = useRef(false)
-  const isRecordingRef   = useRef(false)
+  // Refs
+  const recognitionRef = useRef(null)
+  const finalTextRef = useRef('')
+  const stoppedRef = useRef(false)
+  const isRecordingRef = useRef(false)
   const mediaRecorderRef = useRef(null)
-  const audioChunksRef   = useRef([])
-  const timerRef         = useRef(null)
-  const durationRef      = useRef(0)
-  const restartTimerRef  = useRef(null)
-  const langRef          = useRef(lang)
-  const spawnRef         = useRef(null)
-  const generationRef    = useRef(0)
+  const audioChunksRef = useRef([])
+  const timerRef = useRef(null)
+  const durationRef = useRef(0)
+  const restartTimerRef = useRef(null)
+  const languageRef = useRef(language)
+  const generationRef = useRef(0)
 
-  useEffect(() => { langRef.current = lang }, [lang])
+  useEffect(() => { languageRef.current = language }, [language])
   useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
 
   useEffect(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) setError('Speech Recognition not supported. Please use Chrome or Edge.')
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setError('Speech Recognition not supported. Please use Chrome, Edge, or Safari.')
+    }
   }, [])
 
-  useEffect(() => () => {
-    stoppedRef.current = true
-    generationRef.current += 1
-    clearInterval(timerRef.current)
-    clearTimeout(restartTimerRef.current)
-    try { recognitionRef.current?.abort() } catch {}
-    try {
-      if (mediaRecorderRef.current?.state !== 'inactive')
-        mediaRecorderRef.current?.stop()
-    } catch {}
+  useEffect(() => {
+    return () => {
+      stoppedRef.current = true
+      generationRef.current += 1
+      clearInterval(timerRef.current)
+      clearTimeout(restartTimerRef.current)
+      try { recognitionRef.current?.abort() } catch (e) {}
+      try { 
+        if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop() 
+      } catch (e) {}
+    }
   }, [])
 
   const formatDuration = (secs) => {
-    if (!secs) return ''
-    const m = Math.floor(secs / 60), s = secs % 60
+    if (!secs) return '0s'
+    const m = Math.floor(secs / 60)
+    const s = secs % 60
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
@@ -78,193 +79,167 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     clearTimeout(restartTimerRef.current)
   }
 
-  /*
-   * ══════════════════════════════════════════════════════════════
-   *  MOBILE MICROPHONE LIMITATION — READ THIS BEFORE CHANGING
-   * ══════════════════════════════════════════════════════════════
-   *
-   *  On mobile browsers (iOS Safari, Android Chrome), the
-   *  microphone is EXCLUSIVE — only ONE Web API can use it.
-   *
-   *  • SpeechRecognition needs the mic → transcript works
-   *  • MediaRecorder (getUserMedia) needs the mic → audio file works
-   *
-   *  Running BOTH = getUserMedia steals the mic from SR =
-   *  SR receives SILENCE = ZERO transcript.
-   *
-   *  This has been tested in every possible order:
-   *    - MR first, then SR   → SR gets silence
-   *    - SR first, then MR   → SR gets silence (MR steals it back)
-   *    - MR in onstart       → SR gets silence
-   *    - MR with constraints → SR gets silence
-   *
-   *  THERE IS NO WORKAROUND. This is a browser/OS limitation.
-   *  iOS: SR uses Apple's dictation engine (OS-level mic lock)
-   *  Android: getUserMedia revokes the audio input from SR
-   *
-   *  SOLUTION: Mobile = transcript only. Desktop = both.
-   *  Do NOT add getUserMedia anywhere in the mobile path.
-   * ══════════════════════════════════════════════════════════════
-   */
-
   const buildRecognition = useCallback((langCode, gen) => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) return null
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) return null
 
-    const ios = isIOS()
-    const r = new SR()
-    r.lang            = langCode
-    r.continuous      = !ios
-    r.interimResults  = !ios
-    r.maxAlternatives = 1
+    const isIOS = isIOSDevice()
+    const recognition = new SpeechRecognition()
+    
+    recognition.lang = langCode
+    recognition.continuous = !isIOS
+    recognition.interimResults = !isIOS
+    recognition.maxAlternatives = 1
 
-    r.onresult = (e) => {
-      if (gen !== generationRef.current) return
+    recognition.onresult = (event) => {
+      // FIX 1: Prevent duplicate/double transcription
+      // If we stopped recording, ignore any late-arriving results
+      if (gen !== generationRef.current || stoppedRef.current) return
 
-      let interim = '', newFinal = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) newFinal += t + ' '
-        else interim += t
+      let interimTranscript = ''
+      let finalTranscript = ''
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcript = event.results[i][0].transcript
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + ' '
+        } else {
+          interimTranscript += transcript
+        }
       }
-      if (newFinal) {
-        finalAccumRef.current += newFinal
-        setFinalText(finalAccumRef.current)
-        interimAccumRef.current = ''
+
+      if (finalTranscript) {
+        finalTextRef.current += finalTranscript
+        setFinalText(finalTextRef.current)
       }
-      interimAccumRef.current = interim
-      setLiveText(interim)
+      
+      setLiveText(interimTranscript)
     }
 
-    r.onerror = (e) => {
-      if (gen !== generationRef.current) return
+    recognition.onerror = (event) => {
+      if (gen !== generationRef.current || stoppedRef.current) return
 
-      switch (e.error) {
+      console.error('Speech Recognition Error:', event.error)
+      
+      switch (event.error) {
         case 'not-allowed':
-          setError('Microphone access denied. Allow it in your browser settings.')
-          stoppedRef.current = true
-          clearTimers()
-          setIsRecording(false)
+          setError('Microphone access denied. Please allow it in browser settings.')
+          stopRecordingProcess()
           break
         case 'audio-capture':
-          setError('Microphone busy or unavailable. Close other apps using the mic.')
-          stoppedRef.current = true
-          clearTimers()
-          setIsRecording(false)
+          setError('Microphone is busy or unavailable.')
+          stopRecordingProcess()
           break
         case 'network':
-          if (!stoppedRef.current && isRecordingRef.current) {
-            clearTimeout(restartTimerRef.current)
-            restartTimerRef.current = setTimeout(() => {
-              if (gen === generationRef.current && !stoppedRef.current && isRecordingRef.current) {
-                spawnRef.current?.()
-              }
-            }, 800)
-          }
+          clearTimeout(restartTimerRef.current)
+          restartTimerRef.current = setTimeout(() => {
+            if (!stoppedRef.current && isRecordingRef.current) {
+              startRecognitionLoop(gen)
+            }
+          }, 1000)
           break
         case 'aborted':
         case 'no-speech':
           break
         default:
-          setError(`Recognition error: "${e.error}". Tap Start to retry.`)
+          setError(`Recognition error: ${event.error}`)
       }
     }
 
-    r.onend = () => {
-      if (gen !== generationRef.current) return
+    recognition.onend = () => {
+      if (gen !== generationRef.current || stoppedRef.current) return
 
       setLiveText('')
-      interimAccumRef.current = ''
 
-      if (stoppedRef.current) {
-        setIsRecording(false)
-        return
+      if (!stoppedRef.current && isRecordingRef.current) {
+        clearTimeout(restartTimerRef.current)
+        restartTimerRef.current = setTimeout(() => {
+          if (!stoppedRef.current && isRecordingRef.current) {
+            startRecognitionLoop(gen)
+          }
+        }, isIOS ? 300 : 100)
       }
-
-      // iOS: continuous=false, onend fires after every utterance → restart
-      // Android: continuous=true, onend fires between utterances on some devices → restart
-      // Desktop: continuous=true, onend shouldn't fire but if it does → restart
-      const delay = ios ? 300 : 150
-      clearTimeout(restartTimerRef.current)
-      restartTimerRef.current = setTimeout(() => {
-        if (gen === generationRef.current && !stoppedRef.current && isRecordingRef.current) {
-          spawnRef.current?.()
-        }
-      }, delay)
     }
 
-    return r
+    return recognition
   }, [])
 
-  const spawn = useCallback(() => {
-    const gen = generationRef.current
-    const r = buildRecognition(langRef.current, gen)
-    if (!r) return
-
-    recognitionRef.current = r
-    try {
-      r.start()
-    } catch {
-      clearTimeout(restartTimerRef.current)
-      restartTimerRef.current = setTimeout(() => {
-        if (gen !== generationRef.current) return
-        if (stoppedRef.current || !isRecordingRef.current) return
-        const r2 = buildRecognition(langRef.current, gen)
-        if (r2) {
-          recognitionRef.current = r2
-          try { r2.start() } catch {}
-        }
-      }, 400)
+  const startRecognitionLoop = (gen) => {
+    const recognition = buildRecognition(languageRef.current, gen)
+    if (recognition) {
+      recognitionRef.current = recognition
+      try {
+        recognition.start()
+      } catch (e) {
+        console.warn("Recognition start failed, retrying...", e)
+        setTimeout(() => {
+          if (!stoppedRef.current && isRecordingRef.current) {
+             try { recognition.start() } catch (err) {}
+          }
+        }, 500)
+      }
     }
-  }, [buildRecognition])
-
-  useEffect(() => { spawnRef.current = spawn }, [spawn])
+  }
 
   const startRecording = async () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) { setError('Not supported. Use Chrome or Edge.'); return }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setError('Browser not supported.')
+      return
+    }
 
+    // Reset State
     setError('')
     setLiveText('')
     setFinalText('')
     setCleanedText('')
     setAudioBlob(null)
-    finalAccumRef.current   = ''
-    interimAccumRef.current = ''
-    stoppedRef.current      = false
-    durationRef.current     = 0
+    finalTextRef.current = ''
+    stoppedRef.current = false
+    durationRef.current = 0
     setAudioDuration(0)
-    audioChunksRef.current  = []
-    generationRef.current  += 1
+    audioChunksRef.current = []
+    generationRef.current += 1
     clearTimers()
 
-    // ── MediaRecorder: DESKTOP ONLY ──
-    // NEVER call getUserMedia on mobile — it kills SpeechRecognition.
-    if (!isMobile()) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : MediaRecorder.isTypeSupported('audio/mp4')
-            ? 'audio/mp4'
-            : 'audio/webm'
-        const mr = new MediaRecorder(stream, { mimeType })
-        mr.ondataavailable = (e) => {
-          if (e.data?.size > 0) audioChunksRef.current.push(e.data)
-        }
-        mr.onstop = () => {
-          const blob = new Blob(audioChunksRef.current, { type: mimeType })
-          setAudioBlob(blob)
-          stream.getTracks().forEach(t => t.stop())
-        }
-        mr.start(200)
-        mediaRecorderRef.current = mr
-      } catch { /* audio is optional */ }
+    // FIX 2: Enable MediaRecorder for Mobile
+    // We attempt to record audio on mobile now.
+    // Note: This is experimental on iOS as it might conflict with SpeechRecognition.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      
+      // Determine supported mime type
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : 'audio/webm'
+
+      const recorder = new MediaRecorder(stream, { mimeType })
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data?.size > 0) audioChunksRef.current.push(e.data)
+      }
+      
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: mimeType })
+        setAudioBlob(blob)
+        stream.getTracks().forEach(track => track.stop())
+      }
+      
+      recorder.start(200)
+      mediaRecorderRef.current = recorder
+    } catch (err) {
+      console.warn("MediaRecorder failed, continuing without audio file.", err)
+      // If this fails on mobile, we continue with transcription only
     }
 
-    if (isMobile()) await new Promise(r => setTimeout(r, 150))
+    // Small delay for mobile permissions/dialogs
+    if (isMobileDevice()) await new Promise(r => setTimeout(r, 100))
 
-    spawn()
+    // Start Speech Recognition
+    startRecognitionLoop(generationRef.current)
+    
     setIsRecording(true)
     timerRef.current = setInterval(() => {
       durationRef.current += 1
@@ -272,47 +247,50 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     }, 1000)
   }
 
-  const endRecording = useCallback((saveInterim = false) => {
-    if (saveInterim) {
-      const pending = interimAccumRef.current.trim()
-      if (pending) {
-        finalAccumRef.current += pending + ' '
-        setFinalText(finalAccumRef.current)
-      }
+  const stopRecordingProcess = useCallback((saveInterim = false) => {
+    // FIX 1 (Part 2): Set stopped flag immediately to block double processing
+    stoppedRef.current = true
+    generationRef.current += 1
+    
+    if (saveInterim && liveText) {
+      finalTextRef.current += liveText + ' '
+      setFinalText(finalTextRef.current)
     }
 
     setLiveText('')
-    interimAccumRef.current = ''
-    stoppedRef.current      = true
-    generationRef.current  += 1
     clearTimers()
 
-    const rec = recognitionRef.current
-    recognitionRef.current = null
-    if (rec) {
-      try { rec.stop() } catch {}
-      setTimeout(() => { try { rec.abort() } catch {} }, 300)
+    // Stop Recognition
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop() } catch (e) {}
+      recognitionRef.current = null
     }
 
-    const mr = mediaRecorderRef.current
-    if (mr?.state !== 'inactive') try { mr.stop() } catch {}
+    // Stop Media Recorder
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      try { recorder.stop() } catch (e) {}
+    }
     mediaRecorderRef.current = null
 
     setIsRecording(false)
-  }, [])
+  }, [liveText])
 
-  const handleDoneRecording = () => endRecording(true)
-  const stopRecording       = () => endRecording(false)
+  const handleDone = () => stopRecordingProcess(true)
+  const handleCancel = () => {
+    finalTextRef.current = ''
+    setFinalText('')
+    stopRecordingProcess(false)
+  }
 
   const cleanWithAI = async () => {
-    const raw = finalText.trim()
+    const raw = finalTextRef.current.trim()
     if (!raw) return
-    setCleaning(true)
-    setError('')
 
-    const langLabel =
-      LANGS.find(l => l.code === lang)?.label?.replace(/^\S+\s*/, '') ??
-      'the same language as the input'
+    setIsCleaning(true)
+    setError('')
+    
+    const langLabel = LANGUAGES.find(l => l.code === language)?.label?.replace(/^\S+\s/, '') || 'the input language'
 
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -320,35 +298,35 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          system: `You are a voice transcript cleaner. The speaker's language is: ${langLabel}.
-
+          max_tokens: 1024,
+          system: `You are a transcript cleaner. The speaker is using: ${langLabel}.
 Rules:
-- KEEP the text in ${langLabel}. Do NOT translate it into English or any other language.
-- Fix punctuation and capitalization following ${langLabel} conventions.
-- Remove filler sounds natural to ${langLabel} (e.g. "uh", "um", "ay", "eh", "kuan", "ano ba", "yung" when used as fillers).
-- Fix obvious speech-to-text errors (wrong homophones, merged or split words).
-- Form proper sentences and paragraphs.
-- Preserve ALL original meaning.
-
-Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no preamble.`,
+- Keep the text in ${langLabel}. Do NOT translate.
+- Fix punctuation and capitalization.
+- Remove filler words (um, ah, like, yung, ano, etc.).
+- Fix speech-to-text errors.
+Return ONLY the cleaned text.`,
           messages: [{ role: 'user', content: raw }],
         }),
       })
       const data = await res.json()
       const text = data.content?.map(c => c.text || '').join('').trim()
       setCleanedText(text || raw)
-    } catch {
-      setCleanedText(finalText)
-      setError('AI cleanup unavailable. You can still save the transcript as-is.')
+    } catch (err) {
+      console.error(err)
+      setCleanedText(raw)
+      setError('AI cleanup failed. Raw text saved.')
     } finally {
-      setCleaning(false)
+      setIsCleaning(false)
     }
   }
 
-  const handleSaveToNotebook = async () => {
-    const transcript = (cleanedText || finalText).trim()
-    if (!transcript && !audioBlob) { onClose(); return }
+  const handleSave = async () => {
+    const transcript = (cleanedText || finalTextRef.current).trim()
+    if (!transcript && !audioBlob) {
+      onClose()
+      return
+    }
 
     let audioBase64 = ''
     if (audioBlob) {
@@ -362,266 +340,156 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
     onInsert({
       type: 'voicerecording',
       attrs: {
-        'data-audio':      audioBase64,
+        'data-audio': audioBase64,
         'data-transcript': transcript,
-        'data-timestamp':  new Date().toLocaleString(),
-        'data-duration':   formatDuration(audioDuration),
+        'data-timestamp': new Date().toLocaleString(),
+        'data-duration': formatDuration(audioDuration),
       },
     })
     onClose()
   }
 
   const handleClose = () => {
-    if (isRecording) stopRecording()
+    if (isRecording) handleCancel()
     onClose()
   }
 
-  const displayFinal = cleanedText || finalText
-  const hasContent   = finalText.trim().length > 0
-  const wordCount    = finalText.trim() ? finalText.trim().split(/\s+/).length : 0
+  // Render
+  const displayText = cleanedText || finalText
+  const hasContent = finalText.trim().length > 0
+  const wordCount = finalText.trim() ? finalText.trim().split(/\s+/).length : 0
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
-    >
-      <div
-        className="w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
-        style={{ maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}
-      >
-        {/* ── Header ── */}
-        <div
-          className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 flex-shrink-0"
-          style={{ background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)' }}
-        >
-          <div
-            className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all flex-shrink-0 ${
-              isRecording ? 'bg-red-500' : 'bg-violet-600'
-            }`}
-            style={isRecording ? { animation: 'pulse 1.5s infinite' } : {}}
-          >
+    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-100 flex flex-col max-h-[90vh] sm:max-h-[85vh]">
+        
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-violet-50 to-purple-50 rounded-t-2xl flex-shrink-0">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-violet-600'}`}>
             <Mic className="w-4 h-4 text-white" />
           </div>
-
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-bold text-gray-900">Voice Recording</h3>
-            <p className="text-xs text-gray-500 mt-0.5 truncate">
-              {isRecording
-                ? `🔴 Recording… ${formatDuration(audioDuration)}`
-                : hasContent
-                  ? `${wordCount} words captured`
-                  : 'Real-time transcription + AI cleanup'}
+            <h3 className="text-sm font-bold text-gray-900">Voice Recorder</h3>
+            <p className="text-xs text-gray-500 truncate">
+              {isRecording 
+                ? `🔴 Recording ${formatDuration(audioDuration)}` 
+                : hasContent 
+                  ? `${wordCount} words` 
+                  : 'Ready to record'}
             </p>
           </div>
-
-          <button
-            onClick={hasContent && !isRecording ? handleSaveToNotebook : handleClose}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex-shrink-0 shadow-sm ${
-              hasContent && !isRecording
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+          <button 
+            onClick={hasContent && !isRecording ? handleSave : handleClose} 
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold flex-shrink-0 ${
+              hasContent && !isRecording 
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm' 
+                : 'bg-white hover:bg-gray-100 text-gray-500 border'
             }`}
           >
-            {hasContent && !isRecording
-              ? <><CheckCheck className="w-3.5 h-3.5" /> Save</>
-              : <><X className="w-3.5 h-3.5" /> Close</>}
+            {hasContent && !isRecording ? <><CheckCheck className="w-3.5 h-3.5" /> Save</> : <><X className="w-3.5 h-3.5" /> Close</>}
           </button>
         </div>
 
-        {/* ── Body ── */}
-        <div className="p-4 space-y-3 overflow-y-auto flex-1">
-
-          {/* Language selector */}
+        {/* Body - Responsive Scroll */}
+        <div className="p-4 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+          
           {!isRecording && !hasContent && (
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
-                Language / Wika
-              </label>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-gray-600">Language</label>
               <select
-                value={lang}
-                onChange={e => setLang(e.target.value)}
-                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-violet-400 bg-gray-50 cursor-pointer"
+                value={language}
+                onChange={e => setLanguage(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-violet-400 bg-gray-50"
               >
-                {LANGS.map(l => (
-                  <option key={l.code} value={l.code}>{l.label}</option>
-                ))}
+                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
               </select>
+              
+              {isMobileDevice() && (
+                <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+                  <span>⚠️</span>
+                  <span>Note: Recording audio on mobile while transcribing is experimental. If transcription fails, try disabling ad-blockers or use Desktop for best results.</span>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Mobile info banner — shown before recording starts */}
-          {!isRecording && !hasContent && isMobile() && (
-            <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
-              <span className="text-base leading-none mt-0.5">ℹ️</span>
-              <span>
-                Mobile browsers only allow <strong>one feature</strong> to use the microphone at a time.
-                Your transcript will be saved — audio playback is available on desktop.
-              </span>
-            </div>
-          )}
-
-          {/* Live wave indicator */}
           {isRecording && (
-            <div className="flex items-center gap-3 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
-              <div className="flex items-end gap-0.5 flex-shrink-0 h-5">
-                {[3, 5, 7, 5, 3, 6, 4].map((h, i) => (
-                  <div
-                    key={i}
-                    className="w-1 bg-red-400 rounded-full"
-                    style={{
-                      height: `${h * 3}px`,
-                      animation: `pulse ${0.5 + i * 0.1}s ease-in-out infinite alternate`,
-                      animationDelay: `${i * 70}ms`,
-                    }}
-                  />
+            <div className="flex items-center gap-3 px-3 py-2 bg-red-50 border border-red-200 rounded-xl">
+              <div className="flex items-end gap-0.5 h-5">
+                {[4, 6, 8, 6, 4].map((h, i) => (
+                  <div key={i} className="w-1 bg-red-400 rounded-full animate-pulse" style={{ height: h, animationDelay: `${i * 100}ms` }} />
                 ))}
               </div>
-              <span className="text-xs text-red-600 font-semibold flex-1">
-                {formatDuration(audioDuration)} · Listening — speak now
-              </span>
+              <span className="text-xs text-red-600 font-semibold">Listening...</span>
             </div>
           )}
 
-          {/* Audio preview — desktop only (never appears on mobile) */}
           {audioBlob && !isRecording && (
             <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
-              <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
-                🎧 Audio Preview
-                <span className="font-normal text-violet-500">· saved with your note</span>
-              </p>
-              <audio
-                controls
-                playsInline
-                preload="metadata"
-                className="w-full"
-                src={URL.createObjectURL(audioBlob)}
-              />
+              <p className="text-xs font-semibold text-violet-700 mb-2">🎧 Audio Recording Attached</p>
+              <audio controls src={URL.createObjectURL(audioBlob)} className="w-full h-8" />
             </div>
           )}
 
-          {/* Transcript */}
           {(isRecording || hasContent) && (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs font-semibold text-gray-600">Transcript</p>
-                {wordCount > 0 && (
-                  <span className="text-[10px] text-gray-400">{wordCount} words</span>
-                )}
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-semibold text-gray-600">Transcript</span>
+                <span className="text-[10px] text-gray-400">{wordCount} words</span>
               </div>
-              <div
-                className="min-h-[100px] max-h-[220px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed transition-colors"
-                style={{
-                  background: '#fafafa',
-                  borderColor: isRecording ? '#fca5a5' : '#e5e7eb',
-                }}
-              >
-                {displayFinal && <span className="text-gray-800">{displayFinal}</span>}
-                {liveText && (
-                  <span style={{ color: '#7c3aed', fontStyle: 'italic' }}>
-                    {displayFinal ? ' ' : ''}{liveText}
-                  </span>
-                )}
-                {isRecording && !displayFinal && !liveText && (
-                  <span className="text-gray-400 italic flex items-center gap-2">
-                    <span
-                      className="w-2 h-2 bg-red-400 rounded-full inline-block"
-                      style={{ animation: 'pulse 1s infinite' }}
-                    />
-                    Waiting for speech…
-                  </span>
+              <div className="min-h-[120px] max-h-[200px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed bg-gray-50 border-gray-200 focus-within:border-violet-300">
+                {displayText && <span className="text-gray-800">{displayText}</span>}
+                {liveText && <span className="text-violet-500 italic ml-1">{liveText}</span>}
+                {!displayText && !liveText && isRecording && (
+                  <span className="text-gray-400 italic">Waiting for speech...</span>
                 )}
               </div>
             </div>
           )}
 
-          {/* Error */}
-          {error && (
-            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
-              ⚠️ {error}
+          {error && <div className="text-xs text-red-600 p-2 bg-red-50 rounded-lg border border-red-100">⚠️ {error}</div>}
+
+          {cleanedText && !isCleaning && (
+            <div className="flex items-center gap-2 text-xs text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+              <Sparkles className="w-3.5 h-3.5" /> AI Cleaned
             </div>
           )}
 
-          {/* AI cleaned badge */}
-          {cleanedText && !cleaning && (
-            <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-semibold">
-              <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
-              AI cleaned — filler words removed, punctuation fixed
-            </div>
-          )}
-
-          {/* ── Action buttons ── */}
-          <div className="space-y-2 pt-1">
+          {/* Action Buttons */}
+          <div className="pt-2">
             {isRecording ? (
               <div className="flex gap-2">
-                <button
-                  onClick={handleDoneRecording}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-sm font-bold rounded-xl transition-colors shadow-sm"
-                >
-                  <StopCircle className="w-5 h-5" />
-                  Done Recording
+                <button onClick={handleDone} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl shadow-sm font-semibold">
+                  <StopCircle className="w-5 h-5" /> Done
                 </button>
-                <button
-                  onClick={stopRecording}
-                  title="Discard recording"
-                  className="flex items-center gap-2 px-4 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm font-semibold rounded-xl transition-colors"
-                >
+                <button onClick={handleCancel} className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-semibold">
                   <Square className="w-4 h-4" />
-                  Cancel
                 </button>
               </div>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={startRecording}
-                  className="flex items-center gap-2 px-4 py-2.5 text-white text-sm font-semibold rounded-xl transition-all shadow-sm"
-                  style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
-                >
-                  <Mic className="w-4 h-4" />
-                  {hasContent ? 'Record More' : 'Start Recording'}
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button onClick={startRecording} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl shadow-sm font-semibold">
+                  <Mic className="w-4 h-4" /> {hasContent ? 'Record More' : 'Start Recording'}
                 </button>
-
-                {hasContent && !cleanedText && (
-                  <button
-                    onClick={cleanWithAI}
-                    disabled={cleaning}
-                    className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
-                  >
-                    {cleaning ? (
-                      <span className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" />
-                    ) : (
-                      <Sparkles className="w-4 h-4" />
-                    )}
-                    {cleaning ? 'Cleaning…' : '✨ AI Cleanup'}
-                  </button>
-                )}
-
+                
                 {hasContent && (
-                  <button
-                    onClick={handleSaveToNotebook}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm ml-auto"
-                  >
-                    <CheckCheck className="w-4 h-4" />
-                    Save to Notebook
-                  </button>
+                  <div className="flex gap-2">
+                    {!cleanedText && (
+                       <button onClick={cleanWithAI} disabled={isCleaning} className="flex items-center gap-1.5 px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl font-semibold disabled:opacity-50">
+                         {isCleaning ? '...' : <><Sparkles className="w-4 h-4" /> AI Fix</>}
+                       </button>
+                    )}
+                    <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm font-semibold">
+                      <CheckCheck className="w-4 h-4" /> Save
+                    </button>
+                  </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* Tips */}
-          <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
-            {isIOS() ? (
-              <p>📱 Use <strong>Safari</strong> — Chrome doesn't support voice recognition on iOS</p>
-            ) : isMobile() ? (
-              <p>📱 Use <strong>Chrome</strong> for best results on Android</p>
-            ) : (
-              <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
-            )}
-            <p>
-              💾 {isMobile()
-                ? 'Transcript saved into your note'
-                : 'Saves both audio recording + transcript into your note'}
-            </p>
+          <div className="text-[11px] text-gray-400 text-center pt-2">
+            {isMobileDevice() ? '📱 Audio + Transcript attached to note.' : '🎙️ Audio + Transcript attached to note.'}
           </div>
         </div>
       </div>
