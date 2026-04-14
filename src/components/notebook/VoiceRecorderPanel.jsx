@@ -213,40 +213,42 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     generationRef.current    += 1
     clearTimers()
 
-    // ── MediaRecorder: ENABLED FOR MOBILE ──
-    // The user requested both Audio and Transcript on mobile.
-    // We attempt to start MediaRecorder. 
-    // Note: On some mobile devices, this might interrupt SpeechRecognition.
-    // If that happens, we prioritize having the audio file saved.
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-          ? 'audio/mp4'
-          : 'audio/webm'
-      const mr = new MediaRecorder(stream, { mimeType })
-      mr.ondataavailable = (e) => {
-        if (e.data?.size > 0) audioChunksRef.current.push(e.data)
-      }
-      mr.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: mimeType })
-        setAudioBlob(blob)
-        stream.getTracks().forEach(t => t.stop())
-      }
-      mr.start(200)
-      mediaRecorderRef.current = mr
-    } catch (err) {
-      console.error("MediaRecorder error:", err)
-      // If this fails, we continue with transcript only
-    }
-
+    // ── Start SpeechRecognition FIRST — always the priority ──
     spawn()
     setIsRecording(true)
     timerRef.current = setInterval(() => {
       durationRef.current += 1
       setAudioDuration(durationRef.current)
     }, 1000)
+
+    // ── MediaRecorder: DESKTOP ONLY ──
+    // On mobile, getUserMedia() locks the microphone hardware,
+    // which prevents SpeechRecognition from receiving any audio.
+    // This causes the transcript to stay completely empty on mobile.
+    // We skip MediaRecorder on mobile to guarantee the transcript works.
+    if (!isMobile()) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/mp4')
+            ? 'audio/mp4'
+            : 'audio/webm'
+        const mr = new MediaRecorder(stream, { mimeType })
+        mr.ondataavailable = (e) => {
+          if (e.data?.size > 0) audioChunksRef.current.push(e.data)
+        }
+        mr.onstop = () => {
+          const blob = new Blob(audioChunksRef.current, { type: mimeType })
+          setAudioBlob(blob)
+          stream.getTracks().forEach(t => t.stop())
+        }
+        mr.start(200)
+        mediaRecorderRef.current = mr
+      } catch (err) {
+        console.error("MediaRecorder error:", err)
+      }
+    }
   }
 
   const endRecording = useCallback((saveInterim = false) => {
@@ -448,7 +450,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             </div>
           )}
 
-          {/* Audio preview — now enabled for mobile as well */}
+          {/* Audio preview — desktop only (mobile skips MediaRecorder) */}
           {audioBlob && !isRecording && (
             <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
               <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
@@ -574,7 +576,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             )}
           </div>
 
-          {/* Tips */}
+          {/* Tips — updated to reflect mobile behavior */}
           <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
             {isIOS() ? (
               <p>📱 Use <strong>Safari</strong> — Chrome doesn't support voice recognition on iOS</p>
@@ -583,9 +585,11 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             ) : (
               <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
             )}
-            <p>
-              💾 Saves both audio recording + transcript into your note
-            </p>
+            {isMobile() ? (
+              <p>📝 Transcript-only on mobile · Speak clearly for best accuracy</p>
+            ) : (
+              <p>💾 Saves both audio recording + transcript into your note</p>
+            )}
           </div>
         </div>
       </div>
