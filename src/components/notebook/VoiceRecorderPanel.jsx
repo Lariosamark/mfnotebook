@@ -32,6 +32,8 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const [lang, setLang]                   = useState('en-US')
   const [audioBlob, setAudioBlob]         = useState(null)
   const [audioDuration, setAudioDuration] = useState(0)
+  // Mobile: which tab is active — 'record' or 'transcript'
+  const [mobileTab, setMobileTab]         = useState('record')
 
   const recognitionRef     = useRef(null)
   const finalAccumRef      = useRef('')
@@ -44,12 +46,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const durationRef        = useRef(0)
   const restartTimerRef    = useRef(null)
   const langRef            = useRef(lang)
-
-  // KEY FIX: spawnRef holds a function that always creates a BRAND NEW
-  // SpeechRecognition instance. Mobile browsers silently refuse to restart
-  // a used/ended SR object via .start() — a fresh instance works every time.
-  // We use a ref so onend/onerror closures can call it without stale closures.
-  const spawnRef = useRef(null)
+  const spawnRef           = useRef(null)
 
   useEffect(() => { langRef.current = lang }, [lang])
   useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
@@ -75,9 +72,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
-  // Builds one single-use SpeechRecognition instance.
-  // onend/onerror always delegate restarts to spawnRef so they never
-  // try to call .start() on the same dead object.
   const buildRecognition = useCallback((langCode) => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) return null
@@ -86,7 +80,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     const r = new SR()
     r.lang            = langCode
     r.continuous      = !mobile
-    r.interimResults  = !isIOS()  // iOS misbehaves with interim results
+    r.interimResults  = !isIOS()
     r.maxAlternatives = 1
 
     r.onresult = (e) => {
@@ -117,9 +111,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       } else if (e.error === 'network') {
         if (!stoppedManuallyRef.current && isRecordingRef.current) {
           restartTimerRef.current = setTimeout(() => {
-            if (!stoppedManuallyRef.current && isRecordingRef.current) {
-              spawnRef.current?.()
-            }
+            if (!stoppedManuallyRef.current && isRecordingRef.current) spawnRef.current?.()
           }, 800)
         }
       } else if (e.error !== 'aborted' && e.error !== 'no-speech') {
@@ -131,13 +123,9 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       setLiveText('')
       interimAccumRef.current = ''
       if (!stoppedManuallyRef.current && isRecordingRef.current) {
-        // Mobile needs extra time for the OS to fully release the audio session
-        // before the next instance opens it. Never reuse the ended object.
         const delay = isMobile() ? 600 : 80
         restartTimerRef.current = setTimeout(() => {
-          if (!stoppedManuallyRef.current && isRecordingRef.current) {
-            spawnRef.current?.()
-          }
+          if (!stoppedManuallyRef.current && isRecordingRef.current) spawnRef.current?.()
         }, delay)
       } else {
         setIsRecording(false)
@@ -147,8 +135,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return r
   }, [])
 
-  // spawn() — builds a fresh SR instance and starts it.
-  // Updates recognitionRef so abort/stop always targets the live object.
   const spawn = useCallback(() => {
     const r = buildRecognition(langRef.current)
     if (!r) return
@@ -156,7 +142,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     try {
       r.start()
     } catch {
-      // start() race condition — retry once
       restartTimerRef.current = setTimeout(() => {
         if (!stoppedManuallyRef.current && isRecordingRef.current) {
           const r2 = buildRecognition(langRef.current)
@@ -169,8 +154,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     }
   }, [buildRecognition])
 
-  // Keep spawnRef current so closures inside buildRecognition always call
-  // the latest spawn without stale references
   useEffect(() => { spawnRef.current = spawn }, [spawn])
 
   const startRecording = async () => {
@@ -189,8 +172,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     setAudioDuration(0)
     audioChunksRef.current     = []
 
-    // Skip MediaRecorder on mobile — both MediaRecorder and SpeechRecognition
-    // competing for the mic causes SR to receive no audio and produce nothing.
     if (!isMobile()) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -209,7 +190,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       } catch { /* audio capture is optional */ }
     }
 
-    // Give the OS a moment to release any prior audio session on mobile
     if (isMobile()) await new Promise(r => setTimeout(r, 200))
 
     spawn()
@@ -238,6 +218,8 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         mediaRecorderRef.current?.stop()
     } catch {}
     setIsRecording(false)
+    // Switch to transcript tab on mobile after done
+    if (isMobile()) setMobileTab('transcript')
   }
 
   const stopRecording = () => {
@@ -269,17 +251,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1000,
-          system: `You are a voice transcript cleaner. The speaker's language is: ${langLabel}.
-
-Rules:
-- KEEP the text in ${langLabel}. Do NOT translate it into English or any other language.
-- Fix punctuation and capitalization following ${langLabel} conventions.
-- Remove filler sounds natural to ${langLabel} (e.g. "uh", "um", "ay", "eh", "kuan", "ano ba", "yung" when used as fillers).
-- Fix obvious speech-to-text errors (wrong homophones, merged or split words).
-- Form proper sentences and paragraphs.
-- Preserve ALL original meaning.
-
-Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no preamble.`,
+          system: `You are a voice transcript cleaner. The speaker's language is: ${langLabel}.\n\nRules:\n- KEEP the text in ${langLabel}. Do NOT translate it.\n- Fix punctuation and capitalization.\n- Remove filler sounds.\n- Fix obvious speech-to-text errors.\n- Form proper sentences and paragraphs.\n- Preserve ALL original meaning.\n\nReturn ONLY the cleaned text. No explanation, no preamble.`,
           messages: [{ role: 'user', content: raw }]
         })
       })
@@ -325,6 +297,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
   const displayFinal = cleanedText || finalText
   const hasContent   = finalText.trim().length > 0
   const wordCount    = finalText.trim() ? finalText.trim().split(/\s+/).length : 0
+  const mobile       = isMobile()
 
   return (
     <div
@@ -375,153 +348,219 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
           </button>
         </div>
 
+        {/* ── Mobile Tab Bar ── */}
+        {mobile && (
+          <div className="flex border-b border-gray-100 flex-shrink-0 bg-gray-50">
+            <button
+              onClick={() => setMobileTab('record')}
+              className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${
+                mobileTab === 'record'
+                  ? 'text-violet-700 border-b-2 border-violet-600 bg-white'
+                  : 'text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              🎙 Record
+            </button>
+            <button
+              onClick={() => setMobileTab('transcript')}
+              className={`flex-1 py-2.5 text-xs font-semibold transition-colors relative ${
+                mobileTab === 'transcript'
+                  ? 'text-violet-700 border-b-2 border-violet-600 bg-white'
+                  : 'text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              📝 Transcript
+              {hasContent && (
+                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-violet-500 text-white text-[9px] font-bold">{wordCount > 99 ? '99+' : wordCount}</span>
+              )}
+            </button>
+          </div>
+        )}
+
         {/* ── Body ── */}
         <div className="p-4 space-y-3 overflow-y-auto flex-1">
 
-          {/* Language selector */}
-          {!isRecording && !hasContent && (
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
-                Language / Wika
-              </label>
-              <select
-                value={lang}
-                onChange={e => setLang(e.target.value)}
-                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-violet-400 bg-gray-50 cursor-pointer"
-              >
-                {LANGS.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-              </select>
-            </div>
-          )}
-
-          {/* Live wave indicator */}
-          {isRecording && (
-            <div className="flex items-center gap-3 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
-              <div className="flex items-end gap-0.5 flex-shrink-0 h-5">
-                {[3,5,7,5,3,6,4].map((h, i) => (
-                  <div
-                    key={i}
-                    className="w-1 bg-red-400 rounded-full"
-                    style={{
-                      height: `${h * 3}px`,
-                      animation: `pulse ${0.5 + i * 0.1}s ease-in-out infinite alternate`,
-                      animationDelay: `${i * 70}ms`
-                    }}
-                  />
-                ))}
-              </div>
-              <span className="text-xs text-red-600 font-semibold flex-1">
-                {formatDuration(audioDuration)} · Listening — speak now
-              </span>
-            </div>
-          )}
-
-          {/* Audio preview — desktop only */}
-          {audioBlob && !isRecording && (
-            <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
-              <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
-                🎧 Audio Preview
-                <span className="font-normal text-violet-500">· will be saved in notebook</span>
-              </p>
-              <audio controls className="w-full" src={URL.createObjectURL(audioBlob)} />
-            </div>
-          )}
-
-          {/* Transcript */}
-          {(isRecording || hasContent) && (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-xs font-semibold text-gray-600">Transcript</p>
-                {wordCount > 0 && (
-                  <span className="text-[10px] text-gray-400">{wordCount} words</span>
-                )}
-              </div>
-              <div
-                className="min-h-[100px] max-h-[220px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed transition-colors"
-                style={{
-                  background: '#fafafa',
-                  borderColor: isRecording ? '#fca5a5' : '#e5e7eb'
-                }}
-              >
-                {displayFinal && <span className="text-gray-800">{displayFinal}</span>}
-                {liveText && (
-                  <span style={{ color: '#7c3aed', fontStyle: 'italic' }}>
-                    {displayFinal ? ' ' : ''}{liveText}
-                  </span>
-                )}
-                {isRecording && !displayFinal && !liveText && (
-                  <span className="text-gray-400 italic flex items-center gap-2">
-                    <span
-                      className="w-2 h-2 bg-red-400 rounded-full inline-block"
-                      style={{ animation: 'pulse 1s infinite' }}
-                    />
-                    Waiting for speech…
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
-              ⚠️ {error}
-            </div>
-          )}
-
-          {/* AI cleaned badge */}
-          {cleanedText && !cleaning && (
-            <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-semibold">
-              <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
-              AI cleaned — filler words removed, punctuation fixed
-            </div>
-          )}
-
-          {/* ── Action buttons ── */}
-          <div className="space-y-2 pt-1">
-            {isRecording ? (
-              <div className="flex gap-2">
-                <button
-                  onClick={handleDoneRecording}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-sm font-bold rounded-xl transition-colors shadow-sm"
-                >
-                  <StopCircle className="w-5 h-5" />
-                  Done Recording
-                </button>
-                <button
-                  onClick={stopRecording}
-                  title="Stop without saving interim text"
-                  className="flex items-center gap-2 px-4 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm font-semibold rounded-xl transition-colors"
-                >
-                  <Square className="w-4 h-4" />
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={startRecording}
-                  className="flex items-center gap-2 px-4 py-2.5 text-white text-sm font-semibold rounded-xl transition-all shadow-sm"
-                  style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
-                >
-                  <Mic className="w-4 h-4" />
-                  {hasContent ? 'Record More' : 'Start Recording'}
-                </button>
-
-                {hasContent && !cleanedText && (
-                  <button
-                    onClick={cleanWithAI}
-                    disabled={cleaning}
-                    className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+          {/* RECORD TAB (or desktop — always shown) */}
+          {(!mobile || mobileTab === 'record') && (
+            <>
+              {/* Language selector */}
+              {!isRecording && !hasContent && (
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
+                    Language / Wika
+                  </label>
+                  <select
+                    value={lang}
+                    onChange={e => setLang(e.target.value)}
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-violet-400 bg-gray-50 cursor-pointer"
                   >
-                    {cleaning
-                      ? <span className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" />
-                      : <Sparkles className="w-4 h-4" />}
-                    {cleaning ? 'Cleaning…' : '✨ AI Cleanup'}
-                  </button>
-                )}
+                    {LANGS.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+                  </select>
+                </div>
+              )}
 
-                {hasContent && (
+              {/* Live wave indicator */}
+              {isRecording && (
+                <div className="flex items-center gap-3 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
+                  <div className="flex items-end gap-0.5 flex-shrink-0 h-5">
+                    {[3,5,7,5,3,6,4].map((h, i) => (
+                      <div
+                        key={i}
+                        className="w-1 bg-red-400 rounded-full"
+                        style={{
+                          height: `${h * 3}px`,
+                          animation: `pulse ${0.5 + i * 0.1}s ease-in-out infinite alternate`,
+                          animationDelay: `${i * 70}ms`
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-xs text-red-600 font-semibold flex-1">
+                    {formatDuration(audioDuration)} · Listening — speak now
+                  </span>
+                </div>
+              )}
+
+              {/* Audio preview — desktop only */}
+              {audioBlob && !isRecording && !mobile && (
+                <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
+                  <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
+                    🎧 Audio Preview
+                    <span className="font-normal text-violet-500">· will be saved in notebook</span>
+                  </p>
+                  <audio controls className="w-full" src={URL.createObjectURL(audioBlob)} />
+                </div>
+              )}
+
+              {/* Error */}
+              {error && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+                  ⚠️ {error}
+                </div>
+              )}
+
+              {/* ── Action buttons ── */}
+              <div className="space-y-2 pt-1">
+                {isRecording ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleDoneRecording}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-sm font-bold rounded-xl transition-colors shadow-sm"
+                    >
+                      <StopCircle className="w-5 h-5" />
+                      Done Recording
+                    </button>
+                    <button
+                      onClick={stopRecording}
+                      className="flex items-center gap-2 px-4 py-4 bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm font-semibold rounded-xl transition-colors"
+                    >
+                      <Square className="w-4 h-4" />
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={startRecording}
+                      className="flex items-center gap-2 px-5 py-3 text-white text-sm font-semibold rounded-xl transition-all shadow-sm"
+                      style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
+                    >
+                      <Mic className="w-4 h-4" />
+                      {hasContent ? 'Record More' : 'Start Recording'}
+                    </button>
+
+                    {hasContent && !cleanedText && (
+                      <button
+                        onClick={cleanWithAI}
+                        disabled={cleaning}
+                        className="flex items-center gap-2 px-3 py-3 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+                      >
+                        {cleaning
+                          ? <span className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" />
+                          : <Sparkles className="w-4 h-4" />}
+                        {cleaning ? 'Cleaning…' : '✨ AI Cleanup'}
+                      </button>
+                    )}
+
+                    {hasContent && (
+                      <button
+                        onClick={handleSaveToNotebook}
+                        className="flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm ml-auto"
+                      >
+                        <CheckCheck className="w-4 h-4" />
+                        Save to Notebook
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Tips */}
+              <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
+                {mobile
+                  ? <p>🎙 Tap <strong>Done Recording</strong> when finished — then check Transcript tab</p>
+                  : <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
+                }
+                <p>💾 {mobile ? 'Transcript saved into your note' : 'Saves both audio recording + transcript into your note'}</p>
+              </div>
+            </>
+          )}
+
+          {/* TRANSCRIPT TAB (mobile) or always shown (desktop) */}
+          {(!mobile || mobileTab === 'transcript') && (
+            <>
+              {/* AI cleaned badge */}
+              {cleanedText && !cleaning && (
+                <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-semibold">
+                  <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
+                  AI cleaned — filler words removed, punctuation fixed
+                </div>
+              )}
+
+              {/* Transcript box */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-xs font-semibold text-gray-600">Transcript</p>
+                  {wordCount > 0 && (
+                    <span className="text-[10px] text-gray-400">{wordCount} words</span>
+                  )}
+                </div>
+                <div
+                  className="min-h-[140px] max-h-[280px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed transition-colors"
+                  style={{
+                    background: '#fafafa',
+                    borderColor: isRecording ? '#fca5a5' : '#e5e7eb'
+                  }}
+                >
+                  {displayFinal && <span className="text-gray-800">{displayFinal}</span>}
+                  {liveText && (
+                    <span style={{ color: '#7c3aed', fontStyle: 'italic' }}>
+                      {displayFinal ? ' ' : ''}{liveText}
+                    </span>
+                  )}
+                  {!displayFinal && !liveText && (
+                    <span className="text-gray-400 italic">
+                      {isRecording ? '🔴 Waiting for speech…' : 'No transcript yet. Start recording first.'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Mobile: show AI cleanup & save here too */}
+              {mobile && hasContent && !isRecording && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {!cleanedText && (
+                    <button
+                      onClick={cleanWithAI}
+                      disabled={cleaning}
+                      className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {cleaning
+                        ? <span className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" />
+                        : <Sparkles className="w-4 h-4" />}
+                      {cleaning ? 'Cleaning…' : '✨ AI Cleanup'}
+                    </button>
+                  )}
                   <button
                     onClick={handleSaveToNotebook}
                     className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm ml-auto"
@@ -529,19 +568,10 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
                     <CheckCheck className="w-4 h-4" />
                     Save to Notebook
                   </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Tips */}
-          <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
-            {isMobile()
-              ? <p>🎙 Tap <strong>Done Recording</strong> when finished — text appears after each pause</p>
-              : <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
-            }
-            <p>💾 {isMobile() ? 'Transcript saved into your note' : 'Saves both audio recording + transcript into your note'}</p>
-          </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

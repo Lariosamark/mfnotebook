@@ -1,10 +1,9 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { dbQuery, IS_LOCAL_MODE } from '../lib/neon'
 
 const AuthContext = createContext(null)
 
-// ─── LocalStorage auth (demo mode, no Supabase needed) ───────────────────────
 const LS_AUTH = 'mfnotebook_auth'
 
 function getLocalSession() {
@@ -21,11 +20,12 @@ const SUPABASE_OK =
 
 // ─────────────────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser]           = useState(null)
+  const [profile, setProfile]     = useState(null)
+  const [loading, setLoading]     = useState(true)
+  const [switching, setSwitching] = useState(false) // account-switch loading screen
+  const prevUserIdRef             = useRef(null)
 
-  // ── fetch / upsert profile in DB ────────────────────────────────────────
   const fetchProfile = useCallback(async (authUser) => {
     if (!authUser) { setProfile(null); return }
     try {
@@ -55,10 +55,8 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  // ── boot ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (IS_LOCAL_MODE || !SUPABASE_OK) {
-      // Local / demo mode: instantly restore from localStorage
       const saved = getLocalSession()
       if (saved) {
         setUser(saved)
@@ -67,23 +65,36 @@ export function AuthProvider({ children }) {
         setLoading(false)
       }
     } else {
-      // Supabase mode: SDK restores from its own localStorage cache automatically
       supabase.auth.getSession().then(({ data: { session } }) => {
-        setUser(session?.user ?? null)
-        fetchProfile(session?.user ?? null).finally(() => setLoading(false))
+        const u = session?.user ?? null
+        setUser(u)
+        prevUserIdRef.current = u?.id ?? null
+        fetchProfile(u).finally(() => setLoading(false))
       })
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        setUser(session?.user ?? null)
-        fetchProfile(session?.user ?? null)
+        const newUser = session?.user ?? null
+        const prevId  = prevUserIdRef.current
+
+        // Detect account switch on same PC (different user logged in)
+        if (prevId && newUser && prevId !== newUser.id) {
+          setSwitching(true)
+          setUser(newUser)
+          prevUserIdRef.current = newUser.id
+          await fetchProfile(newUser)
+          // Short delay so loading screen is visible then auto-redirect
+          setTimeout(() => setSwitching(false), 1200)
+        } else {
+          setUser(newUser)
+          prevUserIdRef.current = newUser?.id ?? null
+          fetchProfile(newUser)
+        }
       })
       return () => subscription.unsubscribe()
     }
   }, [fetchProfile])
 
-  // ── sign in ─────────────────────────────────────────────────────────────
   const signIn = async (email, password) => {
     if (IS_LOCAL_MODE || !SUPABASE_OK) {
-      // Local mode: look up user by email, verify password stored in meta
       const { localDB } = await import('../lib/neon')
       const users = localDB.getUsers()
       const found = users.find((u) => u.email === email)
@@ -100,17 +111,13 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  // ── sign up ─────────────────────────────────────────────────────────────
   const signUp = async (email, password, fullName) => {
     if (IS_LOCAL_MODE || !SUPABASE_OK) {
-      // Local mode: create user directly in localDB
       const { localDB } = await import('../lib/neon')
       const existing = localDB.getUsers().find((u) => u.email === email)
       if (existing) throw new Error('An account with this email already exists.')
-      const { v4: uuidv4 } = await import('crypto').catch(() => ({ v4: () => crypto.randomUUID() }))
       const id = crypto.randomUUID()
       const user = localDB.upsertUser({ auth_id: id, email, full_name: fullName, role: 'employee' })
-      // Store password in local record (demo only — never do this in production)
       const { localDB: ldb } = await import('../lib/neon')
       ldb.updateUser(user.id, { _password: password, full_name: fullName })
       const authUser = { id: user.id, email, full_name: fullName, user_metadata: { full_name: fullName } }
@@ -127,13 +134,13 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  // ── sign out ─────────────────────────────────────────────────────────────
   const signOut = async () => {
     if (IS_LOCAL_MODE || !SUPABASE_OK) {
       setLocalSession(null)
     } else {
       await supabase.auth.signOut()
     }
+    prevUserIdRef.current = null
     setUser(null)
     setProfile(null)
   }
@@ -144,7 +151,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, profile, loading,
+      user, profile, loading, switching,
       signIn, signUp, signOut,
       isAdmin, isEmployee, isLocalMode,
       fetchProfile,

@@ -82,6 +82,16 @@ const MapNodeView = ({ node, updateAttributes, selected, extension }) => {
 
   const switchLayer = (key) => { setActiveLayer(key); applyLayer(key) }
 
+  // Invalidate map size when parent container resizes (e.g. sidebar open/close)
+  useEffect(() => {
+    if (!mapRef.current || !leafletMap.current) return
+    const ro = new ResizeObserver(() => {
+      leafletMap.current?.invalidateSize()
+    })
+    ro.observe(mapRef.current)
+    return () => ro.disconnect()
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     loadLeaflet().then((L) => {
@@ -95,6 +105,8 @@ const MapNodeView = ({ node, updateAttributes, selected, extension }) => {
         center: [initLat, initLng], zoom,
         zoomControl: true, attributionControl: false,
         dragging: true, scrollWheelZoom: true,
+        // Prevent leaflet popup/controls from leaking above mobile sidebar overlay
+        preferCanvas: true,
       })
 
       tileRef.current = L.tileLayer(TILE_CONFIGS.satellite.url, { maxZoom: 19 }).addTo(map)
@@ -201,21 +213,49 @@ const MapNodeView = ({ node, updateAttributes, selected, extension }) => {
 
   return (
     <NodeViewWrapper className="map-node-wrapper my-4" contentEditable={false}>
-      <div className={`rounded-xl border overflow-hidden transition-all bg-white ${selected ? 'ring-2 ring-brand-400 border-brand-300' : 'border-gray-200 shadow-sm'}`}>
+      {/*
+        Key fix: `overflow-hidden` + `isolate` ensures the Leaflet map's
+        internal z-index stack is fully scoped to this box and cannot bleed
+        behind or above the mobile sidebar overlay (which sits at z-40+).
+        The wrapper itself stays at natural stacking order (z-auto).
+      */}
+      <div
+        className={`rounded-xl border overflow-hidden bg-white isolate ${
+          selected
+            ? 'ring-2 ring-brand-400 border-brand-300'
+            : 'border-gray-200 shadow-sm'
+        }`}
+      >
 
-        {/* HEADER */}
-        <div className={`flex items-center gap-2 px-3 py-2 border-b flex-wrap ${isSavedMode ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+        {/* ── HEADER ── */}
+        <div className={`flex items-center gap-2 px-2 sm:px-3 py-2 border-b flex-wrap gap-y-1.5 ${
+          isSavedMode ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
+        }`}>
           <MapPin className={`w-3.5 h-3.5 flex-shrink-0 ${isSavedMode ? 'text-emerald-600' : 'text-amber-600'}`} />
+
           <span className={`text-xs font-semibold flex-1 truncate min-w-0 ${isSavedMode ? 'text-emerald-700' : 'text-amber-700'}`}>
-            {displayLabel ? displayLabel.split(',').slice(0,3).join(', ') : isEditing ? 'Drop a pin or search…' : 'No location set'}
+            {displayLabel
+              ? displayLabel.split(',').slice(0, 3).join(', ')
+              : isEditing
+                ? 'Drop a pin or search…'
+                : 'No location set'
+            }
           </span>
-          {reverseLoading && <span className="w-3.5 h-3.5 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin flex-shrink-0" />}
+
+          {reverseLoading && (
+            <span className="w-3.5 h-3.5 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin flex-shrink-0" />
+          )}
 
           {/* Layer switcher */}
           <div className="flex items-center gap-0.5 bg-white/80 border border-gray-200 rounded-lg p-0.5 flex-shrink-0">
-            {['satellite','hybrid','street'].map(k => (
-              <button key={k} onClick={() => switchLayer(k)}
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md transition-colors capitalize ${activeLayer === k ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'}`}>
+            {['satellite', 'hybrid', 'street'].map(k => (
+              <button
+                key={k}
+                onClick={() => switchLayer(k)}
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md transition-colors capitalize ${
+                  activeLayer === k ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-900'
+                }`}
+              >
                 {k}
               </button>
             ))}
@@ -229,63 +269,94 @@ const MapNodeView = ({ node, updateAttributes, selected, extension }) => {
 
           {!editorReadOnly && isSavedMode && (
             <>
-              <button onClick={() => setMode('changing')}
-                className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-900 px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 font-semibold border border-emerald-300 transition-colors flex-shrink-0">
+              <button
+                onClick={() => setMode('changing')}
+                className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-900 px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 font-semibold border border-emerald-300 transition-colors flex-shrink-0"
+              >
                 ✏️ Change
               </button>
-              <a href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`}
-                target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 px-2 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 font-medium border border-emerald-200 transition-colors flex-shrink-0">
-                <Navigation className="w-3 h-3" /> Open
+              <a
+                href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 px-2 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 font-medium border border-emerald-200 transition-colors flex-shrink-0"
+              >
+                <Navigation className="w-3 h-3" />
+                <span className="hidden xs:inline">Open</span>
               </a>
             </>
           )}
+
           {!editorReadOnly && isEditing && isChanging && (
-            <button onClick={cancelChange}
-              className="text-xs text-gray-500 hover:text-gray-700 px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 font-medium border border-gray-200 transition-colors flex-shrink-0">
+            <button
+              onClick={cancelChange}
+              className="text-xs text-gray-500 hover:text-gray-700 px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 font-medium border border-gray-200 transition-colors flex-shrink-0"
+            >
               ✕ Cancel
             </button>
           )}
         </div>
 
-        {/* EDITING PANEL */}
+        {/* ── EDITING PANEL ── */}
         {!editorReadOnly && isEditing && (
           <div className="p-3 bg-white border-b border-gray-100 space-y-2">
             <div className="flex gap-2">
-              <input className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-400 bg-gray-50"
+              <input
+                className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-400 bg-gray-50"
                 placeholder="Search for a place or address…"
-                value={searchVal} onChange={e => setSearchVal(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && doSearch(searchVal)} autoFocus />
-              <button onClick={() => doSearch(searchVal)} disabled={searching}
-                className="px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors flex-shrink-0">
-                {searching ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin inline-block" /> : <Search className="w-3.5 h-3.5" />}
-                Search
+                value={searchVal}
+                onChange={e => setSearchVal(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && doSearch(searchVal)}
+                autoFocus
+              />
+              <button
+                onClick={() => doSearch(searchVal)}
+                disabled={searching}
+                className="px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors flex-shrink-0"
+              >
+                {searching
+                  ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin inline-block" />
+                  : <Search className="w-3.5 h-3.5" />
+                }
+                <span className="hidden xs:inline">Search</span>
               </button>
             </div>
+
             {error && <p className="text-xs text-red-500">{error}</p>}
+
             {suggestions.length > 0 && (
               <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm max-h-48 overflow-y-auto">
                 {suggestions.map((s, i) => (
-                  <button key={i} onClick={() => pickSuggestion(s)}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 text-gray-700 border-b border-gray-100 last:border-0 transition-colors">
+                  <button
+                    key={i}
+                    onClick={() => pickSuggestion(s)}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 text-gray-700 border-b border-gray-100 last:border-0 transition-colors"
+                  >
                     <span className="font-semibold text-gray-800">{s.display_name.split(',')[0]}</span>
-                    <span className="text-gray-400 ml-1 block truncate">{s.display_name.split(',').slice(1,4).join(', ')}</span>
+                    <span className="text-gray-400 ml-1 block truncate">{s.display_name.split(',').slice(1, 4).join(', ')}</span>
                   </button>
                 ))}
               </div>
             )}
+
             {hasPending && (
               <div className="flex items-center gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex-wrap">
                 <MapPin className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
                 <span className="text-xs text-amber-800 flex-1 truncate font-medium min-w-0">
-                  {pendingLabel ? pendingLabel.split(',').slice(0,3).join(', ') : `${(+pendingLat).toFixed(5)}, ${(+pendingLng).toFixed(5)}`}
+                  {pendingLabel
+                    ? pendingLabel.split(',').slice(0, 3).join(', ')
+                    : `${(+pendingLat).toFixed(5)}, ${(+pendingLng).toFixed(5)}`
+                  }
                 </span>
-                <button onClick={saveLocation}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap flex-shrink-0">
+                <button
+                  onClick={saveLocation}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap flex-shrink-0"
+                >
                   ✓ Save Location
                 </button>
               </div>
             )}
+
             {!hasPending && (
               <p className="text-xs text-gray-400 flex items-center gap-1.5">
                 <Satellite className="w-3 h-3 flex-shrink-0" />
@@ -295,7 +366,7 @@ const MapNodeView = ({ node, updateAttributes, selected, extension }) => {
           </div>
         )}
 
-        {/* SAVED BADGE */}
+        {/* ── SAVED BADGE ── */}
         {isSavedMode && !editorReadOnly && (
           <div className="px-3 py-1.5 bg-emerald-50 border-b border-emerald-100 text-xs text-emerald-700 flex items-center gap-1.5 font-medium flex-wrap">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block flex-shrink-0" />
@@ -303,14 +374,53 @@ const MapNodeView = ({ node, updateAttributes, selected, extension }) => {
           </div>
         )}
 
-        {/* MAP */}
-        <div style={{ position: 'relative' }}>
-          <div ref={mapRef} id={mapId.current} style={{ height: 300, width: '100%' }} />
+        {/* ── MAP ── */}
+        {/*
+          Height strategy:
+            - Mobile (<640px): 220px fixed — vw-based values collapse when the
+              sidebar drawer is open and takes half the viewport width.
+            - Tablet (640-1024px): 45vw scales naturally.
+            - Desktop: caps at 320px to stay compact in the editor.
+
+          `position: relative` + `overflow: hidden` keeps Leaflet's absolutely
+          positioned controls (zoom buttons, popups) clipped to this box and
+          prevents them from appearing above the mobile sidebar overlay.
+        */}
+        <style>{`
+          .map-canvas-sizer {
+            height: 220px;
+          }
+          @media (min-width: 640px) {
+            .map-canvas-sizer {
+              height: clamp(240px, 45vw, 320px);
+            }
+          }
+        `}</style>
+
+        <div className="map-canvas-sizer" style={{ position: 'relative', overflow: 'hidden' }}>
+          <div
+            ref={mapRef}
+            id={mapId.current}
+            style={{ height: '100%', width: '100%' }}
+          />
+
+          {/* Interaction blocker when locked */}
           {isLocked && (
-            <div style={{ position: 'absolute', inset: 0, zIndex: 800, cursor: 'default', background: 'transparent' }}
-              title={editorReadOnly ? 'View only — admin controls editing' : "Location saved. Click 'Change' to edit."} />
+            <div
+              style={{
+                position: 'absolute', inset: 0,
+                zIndex: 800,           /* above Leaflet tile layers (200-400) but scoped by isolate */
+                cursor: 'default',
+                background: 'transparent',
+              }}
+              title={editorReadOnly
+                ? 'View only — admin controls editing'
+                : "Location saved. Click 'Change' to edit."
+              }
+            />
           )}
         </div>
+
       </div>
     </NodeViewWrapper>
   )

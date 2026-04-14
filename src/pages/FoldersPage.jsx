@@ -17,12 +17,12 @@ export default function FoldersPage() {
   const { isAdmin } = useAuth()
   const { activeFolder, setSidebarOpen, showToast } = useApp()
 
-  const [images, setImages] = useState([])
+  const [images, setImages]           = useState([])
   const [loadingImages, setLoadingImages] = useState(false)
   const [deleteImageId, setDeleteImageId] = useState(null)
-  const [viewMode, setViewMode] = useState('grid')
+  const [viewMode, setViewMode]       = useState('grid')
   const [lightboxImg, setLightboxImg] = useState(null)
-  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploadOpen, setUploadOpen]   = useState(false)
 
   useEffect(() => {
     if (activeFolder) loadImages(activeFolder.id)
@@ -51,38 +51,38 @@ export default function FoldersPage() {
       {activeFolder ? (
         <>
           {/* Gallery Header */}
-          <div className="flex items-center gap-2 px-3 sm:px-6 py-3 sm:py-4 border-b border-slate-200 bg-white/60 backdrop-blur-sm flex-shrink-0 flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-2 px-3 sm:px-5 py-3 border-b border-slate-200 bg-white/60 backdrop-blur-sm flex-shrink-0">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="lg:hidden text-slate-400 hover:text-slate-800 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              className="lg:hidden text-slate-400 hover:text-slate-800 p-1.5 rounded-lg hover:bg-slate-100 transition-colors flex-shrink-0"
             >
               <Folder className="w-4 h-4" />
             </button>
             <div className="flex-1 min-w-0">
-              <h2 className="font-semibold text-slate-800 truncate">{activeFolder.site_name}</h2>
+              <h2 className="font-semibold text-slate-800 text-sm sm:text-base truncate">{activeFolder.site_name}</h2>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <MapPin className="w-3 h-3 text-brand-600" />
-                <span className="text-xs text-slate-400">{activeFolder.location}</span>
+                <MapPin className="w-3 h-3 text-brand-600 flex-shrink-0" />
+                <span className="text-xs text-slate-400 truncate">{activeFolder.location}</span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 flex-shrink-0">
               <div className="flex bg-slate-100 rounded-lg p-0.5">
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded transition-colors ${viewMode === 'grid' ? 'bg-slate-200 text-slate-800' : 'text-slate-400 hover:text-slate-800'}`}
+                  className={`p-1.5 rounded transition-colors ${viewMode === 'grid' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-800'}`}
                 >
                   <Grid3x3 className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded transition-colors ${viewMode === 'list' ? 'bg-slate-200 text-slate-800' : 'text-slate-400 hover:text-slate-800'}`}
+                  className={`p-1.5 rounded transition-colors ${viewMode === 'list' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-800'}`}
                 >
                   <List className="w-3.5 h-3.5" />
                 </button>
               </div>
               <button
                 onClick={() => setUploadOpen(true)}
-                className="flex items-center gap-1.5 text-xs bg-brand-600 hover:bg-brand-700 text-white px-2.5 sm:px-3 py-2 rounded-lg transition-colors flex-shrink-0"
+                className="flex items-center gap-1.5 text-xs bg-brand-600 hover:bg-brand-700 text-white px-2.5 py-2 rounded-lg transition-colors"
               >
                 <Upload className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Upload Images</span>
@@ -92,20 +92,20 @@ export default function FoldersPage() {
           </div>
 
           {/* Images */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-5">
             {loadingImages ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="aspect-square bg-slate-100 rounded-xl animate-pulse" />
                 ))}
               </div>
             ) : images.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <div className="w-20 h-20 rounded-xl bg-slate-100 flex items-center justify-center mb-4">
-                  <ImageIcon className="w-9 h-9 text-slate-400" />
+              <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                <div className="w-16 h-16 rounded-xl bg-slate-100 flex items-center justify-center mb-3">
+                  <ImageIcon className="w-8 h-8 text-slate-400" />
                 </div>
-                <h3 className="text-slate-800 font-medium mb-1">No images yet</h3>
-                <p className="text-slate-400 text-sm mb-4">Upload site photos to this folder</p>
+                <h3 className="text-slate-700 font-medium mb-1 text-sm">No images yet</h3>
+                <p className="text-slate-400 text-xs mb-4">Upload site photos to this folder</p>
                 <button
                   onClick={() => setUploadOpen(true)}
                   className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm px-4 py-2 rounded-xl transition-colors"
@@ -122,11 +122,11 @@ export default function FoldersPage() {
         </>
       ) : (
         <div className="flex flex-col items-center justify-center h-full text-center p-8">
-          <div className="w-20 h-20 rounded-xl bg-slate-100 flex items-center justify-center mb-4">
-            <Building2 className="w-9 h-9 text-slate-400" />
+          <div className="w-16 h-16 rounded-xl bg-slate-100 flex items-center justify-center mb-3">
+            <Building2 className="w-8 h-8 text-slate-400" />
           </div>
-          <h3 className="text-slate-800 font-medium mb-1">Select a Site Folder</h3>
-          <p className="text-slate-400 text-sm mb-4">Choose a folder from the sidebar to view images</p>
+          <h3 className="text-slate-700 font-medium mb-1 text-sm">Select a Site Folder</h3>
+          <p className="text-slate-400 text-xs mb-4">Choose a folder from the sidebar to view images</p>
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
@@ -137,7 +137,6 @@ export default function FoldersPage() {
         </div>
       )}
 
-      {/* Modals */}
       <ConfirmModal
         open={!!deleteImageId}
         onClose={() => setDeleteImageId(null)}
@@ -158,18 +157,22 @@ export default function FoldersPage() {
 
       {lightboxImg && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-3 sm:p-6"
           onClick={() => setLightboxImg(null)}
         >
-          <button className="absolute top-4 right-4 text-white bg-white/10 p-2 rounded-full hover:bg-white/20">
+          <button className="absolute top-3 right-3 sm:top-4 sm:right-4 text-white bg-white/10 p-2.5 rounded-full hover:bg-white/20 z-10">
             <X className="w-5 h-5" />
           </button>
-          <img
-            src={lightboxImg.file_url}
-            alt={lightboxImg.file_name}
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          />
+          <div className="max-w-full max-h-full flex flex-col items-center gap-2" onClick={e => e.stopPropagation()}>
+            <img
+              src={lightboxImg.file_url}
+              alt={lightboxImg.file_name}
+              className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl"
+            />
+            {lightboxImg.caption && (
+              <p className="text-white/80 text-sm text-center">{lightboxImg.caption}</p>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -178,29 +181,29 @@ export default function FoldersPage() {
 
 function ImageGrid({ images, onView, onDelete, isAdmin }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
       {images.map(img => (
         <div
           key={img.id}
-          className="group relative aspect-square rounded-xl overflow-hidden bg-slate-100 cursor-pointer"
+          className="group relative aspect-square rounded-xl overflow-hidden bg-slate-100 cursor-pointer border border-slate-200 hover:border-brand-300 transition-all shadow-sm hover:shadow-md"
           onClick={() => onView(img)}
         >
           <img src={img.file_url} alt={img.file_name} className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-300" />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-            <button className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-full transition-colors backdrop-blur-sm"
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-end justify-end p-2 opacity-0 group-hover:opacity-100 gap-1.5">
+            <button className="bg-white/20 hover:bg-white/40 text-white p-1.5 rounded-lg transition-colors backdrop-blur-sm"
               onClick={e => { e.stopPropagation(); onView(img) }}>
-              <Eye className="w-4 h-4" />
+              <Eye className="w-3.5 h-3.5" />
             </button>
             {isAdmin && (
-              <button className="bg-red-500/20 hover:bg-red-500/40 text-red-300 p-2 rounded-full transition-colors backdrop-blur-sm"
+              <button className="bg-red-500/30 hover:bg-red-500/60 text-red-200 p-1.5 rounded-lg transition-colors backdrop-blur-sm"
                 onClick={e => { e.stopPropagation(); onDelete(img.id) }}>
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
           {img.caption && (
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-              <p className="text-white text-xs truncate">{img.caption}</p>
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+              <p className="text-white text-[10px] truncate">{img.caption}</p>
             </div>
           )}
         </div>
@@ -213,25 +216,25 @@ function ImageList({ images, onView, onDelete, isAdmin }) {
   return (
     <div className="space-y-2">
       {images.map(img => (
-        <div key={img.id} className="flex items-center gap-4 p-3 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-colors">
-          <div className="w-16 h-12 rounded-lg overflow-hidden bg-slate-100 flex-shrink-0 cursor-pointer" onClick={() => onView(img)}>
+        <div key={img.id} className="flex items-center gap-3 p-2.5 sm:p-3 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-colors">
+          <div className="w-12 h-10 sm:w-16 sm:h-12 rounded-lg overflow-hidden bg-slate-100 flex-shrink-0 cursor-pointer" onClick={() => onView(img)}>
             <img src={img.file_url} alt={img.file_name} className="w-full h-full object-cover" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm text-slate-800 truncate">{img.file_name}</p>
-            <div className="flex items-center gap-3 mt-0.5">
-              {img.file_size && <span className="text-xs text-slate-400">{fileSize(img.file_size)}</span>}
-              <span className="text-xs text-slate-400">{formatDate(img.created_at)}</span>
-              {img.uploader_name && <span className="text-xs text-slate-400">by {img.uploader_name}</span>}
+            <p className="text-xs sm:text-sm text-slate-800 font-medium truncate">{img.file_name}</p>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              {img.file_size && <span className="text-[10px] sm:text-xs text-slate-400">{fileSize(img.file_size)}</span>}
+              <span className="text-[10px] sm:text-xs text-slate-400">{formatDate(img.created_at)}</span>
+              {img.uploader_name && <span className="text-[10px] sm:text-xs text-slate-400 hidden sm:inline">by {img.uploader_name}</span>}
             </div>
-            {img.caption && <p className="text-xs text-slate-400 mt-0.5 truncate">{img.caption}</p>}
+            {img.caption && <p className="text-[10px] text-slate-400 mt-0.5 truncate">{img.caption}</p>}
           </div>
-          <div className="flex gap-2 flex-shrink-0">
-            <button onClick={() => onView(img)} className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-800 transition-colors">
+          <div className="flex gap-1.5 flex-shrink-0">
+            <button onClick={() => onView(img)} className="p-1.5 sm:p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors">
               <Eye className="w-3.5 h-3.5" />
             </button>
             {isAdmin && (
-              <button onClick={() => onDelete(img.id)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-400 transition-colors">
+              <button onClick={() => onDelete(img.id)} className="p-1.5 sm:p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-400 transition-colors">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
@@ -243,7 +246,7 @@ function ImageList({ images, onView, onDelete, isAdmin }) {
 }
 
 function UploadModal({ folderId, onClose, onUploaded, addImage }) {
-  const [files, setFiles] = useState([])
+  const [files, setFiles]       = useState([])
   const [uploading, setUploading] = useState(false)
   const [captions, setCaptions] = useState({})
 
@@ -273,39 +276,39 @@ function UploadModal({ folderId, onClose, onUploaded, addImage }) {
       <div className="space-y-4">
         <div
           {...getRootProps()}
-          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+          className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center cursor-pointer transition-colors ${
             isDragActive ? 'border-brand-500 bg-brand-50' : 'border-slate-200 hover:border-slate-300 bg-slate-50'
           }`}
         >
           <input {...getInputProps()} />
-          <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-          <p className="text-slate-600 text-sm">{isDragActive ? 'Drop images here…' : 'Drag & drop images, or click to browse'}</p>
+          <Upload className="w-7 h-7 text-slate-400 mx-auto mb-2" />
+          <p className="text-slate-600 text-sm">{isDragActive ? 'Drop images here…' : 'Drag & drop images, or tap to browse'}</p>
           <p className="text-slate-400 text-xs mt-1">JPG, PNG, GIF, WebP, SVG</p>
         </div>
         {files.length > 0 && (
-          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
             {files.map(f => (
-              <div key={f.name} className="flex items-start sm:items-center gap-3 bg-slate-100 rounded-xl p-3 flex-wrap sm:flex-nowrap">
-                <img src={URL.createObjectURL(f)} alt={f.name} className="w-12 h-10 object-cover rounded-lg flex-shrink-0" />
+              <div key={f.name} className="flex items-center gap-2.5 bg-slate-100 rounded-xl p-2.5">
+                <img src={URL.createObjectURL(f)} alt={f.name} className="w-10 h-9 object-cover rounded-lg flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-slate-800 truncate">{f.name}</p>
-                  <p className="text-xs text-slate-400">{fileSize(f.size)}</p>
+                  <p className="text-xs text-slate-800 truncate font-medium">{f.name}</p>
+                  <p className="text-[10px] text-slate-400">{fileSize(f.size)}</p>
                 </div>
                 <input
                   value={captions[f.name] || ''}
                   onChange={e => setCaptions({ ...captions, [f.name]: e.target.value })}
                   placeholder="Caption…"
-                  className="w-full sm:w-32 bg-slate-200 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-400"
+                  className="w-24 sm:w-32 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-400"
                 />
                 <button onClick={() => setFiles(prev => prev.filter(x => x.name !== f.name))}
-                  className="text-slate-400 hover:text-red-400 transition-colors flex-shrink-0">
-                  <X className="w-4 h-4" />
+                  className="text-slate-400 hover:text-red-400 transition-colors flex-shrink-0 p-1">
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
             ))}
           </div>
         )}
-        <div className="flex justify-end gap-3">
+        <div className="flex justify-end gap-3 pt-1">
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors">Cancel</button>
           <button
             onClick={handleUpload}

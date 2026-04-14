@@ -28,7 +28,7 @@ const DiagramNodeView = ({ node, updateAttributes, selected, extension }) => {
 
   return (
     <NodeViewWrapper className="diagram-node-wrapper my-4">
-      <div className={`rounded-xl transition-all w-full ${selected ? 'ring-2 ring-blue-400' : ''}`}>
+      <div className={`rounded-xl transition-all w-full overflow-hidden ${selected ? 'ring-2 ring-blue-400' : ''}`}>
 
         {/* ── Header ── */}
         <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-t-xl border-b-0 flex-wrap">
@@ -67,17 +67,28 @@ const DiagramNodeView = ({ node, updateAttributes, selected, extension }) => {
 
         {/* ── Canvas ── */}
         {/*
-          Height strategy:
-            - clamp(260px, 55vw, 520px) gives ~260px on phones, up to 520px on desktop.
-            - On very wide viewports (editors ≥ 900px) the 55vw cap kicks in just right.
-            - Override via the style prop if you need a taller/shorter instance.
+          Responsive height strategy:
+            - Mobile  (<640px): 280px fixed — sidebar overlay means vw-based heights
+                                collapse. A fixed floor looks better.
+            - Tablet  (640-1024px): 55vw gives a natural proportional canvas.
+            - Desktop (>1024px): caps at 520px so it doesn't grow too tall.
+          We achieve this with a small inline style + a CSS custom property
+          overridden via a <style> block scoped to this component.
         */}
+        <style>{`
+          .diagram-canvas-sizer {
+            height: 280px;
+          }
+          @media (min-width: 640px) {
+            .diagram-canvas-sizer {
+              height: clamp(320px, 55vw, 520px);
+            }
+          }
+        `}</style>
+
         <div
-          style={{
-            position: 'relative',
-            width: '100%',
-            height: 'clamp(260px, 55vw, 520px)',
-          }}
+          className="diagram-canvas-sizer"
+          style={{ position: 'relative', width: '100%' }}
         >
           <DiagramCanvas
             data={data}
@@ -85,13 +96,13 @@ const DiagramNodeView = ({ node, updateAttributes, selected, extension }) => {
             readOnly={isLocked}
             style={{
               height: '100%',
-              minHeight: 0,          /* let the parent clamp control height */
+              minHeight: 0,
               borderTopLeftRadius: 0,
               borderTopRightRadius: 0,
             }}
           />
 
-          {/* Interaction blocker when locked (prevents accidental panning in read-only) */}
+          {/* Interaction blocker when locked */}
           {isLocked && (
             <div
               style={{ position: 'absolute', inset: 0, zIndex: 10, cursor: 'default' }}

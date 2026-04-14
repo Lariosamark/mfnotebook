@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useApp } from '../contexts/AppContext'
 import LoginPage from './auth/LoginPage'
@@ -7,10 +7,10 @@ import NotebooksPage from '../pages/NotebooksPage'
 import FoldersPage from '../pages/FoldersPage'
 import AdminPage from '../pages/AdminPage'
 import Toast from './ui/Toast'
-import { Loader2, BookOpen, Menu } from 'lucide-react'
+import { Loader2, BookOpen, Menu, RefreshCw } from 'lucide-react'
 
 export default function App() {
-  const { user, loading } = useAuth()
+  const { user, loading, switching } = useAuth()
   const { activeView, setActiveView, activePage, activeNotebook, activeSection,
           sidebarOpen, setSidebarOpen } = useApp()
 
@@ -18,6 +18,7 @@ export default function App() {
     document.title = activePage?.title ? `${activePage.title} — MFNotebook` : 'MFNotebook'
   }, [activePage?.title])
 
+  // Initial app loading
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center relative overflow-hidden">
@@ -38,6 +39,30 @@ export default function App() {
     )
   }
 
+  // Account switch loading screen (same PC, different account)
+  if (switching) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -right-40 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl" />
+          <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl" />
+        </div>
+        <div className="relative flex flex-col items-center gap-6 text-center px-8">
+          <div className="w-16 h-16 rounded-2xl bg-violet-600 flex items-center justify-center shadow-lg shadow-violet-600/30">
+            <RefreshCw className="w-8 h-8 text-white animate-spin" />
+          </div>
+          <div>
+            <h2 className="text-white font-bold text-xl mb-2">Switching Account</h2>
+            <p className="text-slate-400 text-sm">A different account has been detected.<br/>Loading your workspace…</p>
+          </div>
+          <div className="w-48 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-full bg-violet-500 rounded-full animate-[loading_1.2s_ease-in-out_infinite]" style={{width:'60%'}} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (!user) return <LoginPage />
 
   const views = {
@@ -46,7 +71,6 @@ export default function App() {
     admin:     <AdminPage />,
   }
 
-  // View label for mobile top bar
   const viewLabels = { notebooks: 'Notebooks', folders: 'Site Folders', admin: 'Admin Panel' }
 
   return (

@@ -4,7 +4,10 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useApp } from '../../contexts/AppContext'
 import NoteEditor from './NoteEditor'
 import { Avatar } from '../layout/Sidebar'
-import { Pin, PinOff, MessageSquare, Send, Trash2, Loader2, FileText, CheckCircle2, Clock, X, Sparkles } from 'lucide-react'
+import {
+  Pin, PinOff, MessageSquare, Send, Trash2, Loader2,
+  FileText, CheckCircle2, Clock, X, Sparkles,
+} from 'lucide-react'
 import { formatDate, formatRelative } from '../../lib/utils'
 import { ConfirmModal } from '../ui/Toast'
 
@@ -13,17 +16,17 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
   const { profile, isAdmin } = useAuth()
   const { showToast } = useApp()
 
-  const [content, setContent]                   = useState(page?.content || '')
-  const [saving, setSaving]                     = useState(false)
-  const [saved, setSaved]                       = useState(false)
-  const [comments, setComments]                 = useState([])
-  const [commentText, setCommentText]           = useState('')
-  const [showComments, setShowComments]         = useState(false)
-  const [loadingComments, setLoadingComments]   = useState(false)
-  const [deleteCommentId, setDeleteCommentId]   = useState(null)
-  const saveTimer                               = useRef(null)
+  const [content, setContent]                 = useState(page?.content || '')
+  const [saving, setSaving]                   = useState(false)
+  const [saved, setSaved]                     = useState(false)
+  const [comments, setComments]               = useState([])
+  const [commentText, setCommentText]         = useState('')
+  const [showComments, setShowComments]       = useState(false)
+  const [loadingComments, setLoadingComments] = useState(false)
+  const [deleteCommentId, setDeleteCommentId] = useState(null)
+  const saveTimer                             = useRef(null)
 
-  // In viewer mode, always show comments panel
+  // Viewer mode always shows comments
   useEffect(() => {
     if (viewerMode && page) setShowComments(true)
   }, [viewerMode, page?.id])
@@ -52,19 +55,27 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
         onUpdate?.(updated)
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
-      } catch { showToast('Failed to save', 'error') }
-      finally { setSaving(false) }
+      } catch {
+        showToast('Failed to save', 'error')
+      } finally {
+        setSaving(false)
+      }
     }, 800)
   }, [page?.id])
 
+  /* ── Empty state ── */
   if (!page) return (
-    <div className="flex flex-col items-center justify-center h-full app-editor-area text-center p-10">
-      <div className="w-16 h-16 rounded-2xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center mb-5">
-        <FileText className="w-7 h-7 text-brand-400" />
+    <div className="flex flex-col items-center justify-center h-full app-editor-area text-center p-6 sm:p-10">
+      <div className="w-14 sm:w-16 h-14 sm:h-16 rounded-2xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center mb-4 sm:mb-5">
+        <FileText className="w-6 sm:w-7 h-6 sm:h-7 text-brand-400" />
       </div>
-      <h3 className="font-display font-semibold text-gray-500 mb-1.5 text-lg">No page selected</h3>
-      <p className="text-gray-400 text-sm max-w-xs">Choose a page from the panel on the left, or create a new one to start writing</p>
-      <div className="mt-6 flex items-center gap-2 text-xs text-gray-300">
+      <h3 className="font-display font-semibold text-gray-500 mb-1.5 text-base sm:text-lg">
+        No page selected
+      </h3>
+      <p className="text-gray-400 text-xs sm:text-sm max-w-[240px] sm:max-w-xs">
+        Choose a page from the tab bar above, or create a new one to start writing
+      </p>
+      <div className="mt-5 sm:mt-6 flex items-center gap-2 text-xs text-gray-300">
         <Sparkles className="w-3.5 h-3.5 text-brand-300" />
         <span>Your notes are auto-saved as you type</span>
       </div>
@@ -72,161 +83,257 @@ export default function PageEditor({ page, onUpdate, viewerMode = false }) {
   )
 
   return (
-    <div className="flex flex-col h-full app-editor-area">
-      {/* Slim metadata bar */}
+    <div className="flex flex-col h-full app-editor-area overflow-hidden">
+
+      {/* ── Slim metadata bar ── */}
       <div className="flex-shrink-0 border-b border-gray-100 bg-white">
-        <div className="flex items-center gap-2 px-3 sm:px-6 py-2.5 overflow-x-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 overflow-x-auto"
+          style={{ scrollbarWidth: 'none' }}>
+
+          {/* Save / view-only status */}
           {viewerMode ? (
-            <span className="flex items-center gap-1.5 text-xs bg-amber-50 text-amber-600 border border-amber-200 px-2.5 py-1 rounded-full font-medium">
-              👁 View Only
+            <span className="flex items-center gap-1.5 text-xs bg-amber-50 text-amber-600 border border-amber-200 px-2 sm:px-2.5 py-1 rounded-full font-medium flex-shrink-0">
+              👁 <span className="hidden xs:inline">View Only</span>
             </span>
           ) : (
-            <div className={`flex items-center gap-1.5 text-xs transition-all ${
+            <div className={`flex items-center gap-1.5 text-xs transition-all flex-shrink-0 ${
               saving ? 'text-amber-500' : saved ? 'text-brand-600' : 'text-gray-400'
             }`}>
               {saving
                 ? <><Loader2 className="w-3 h-3 animate-spin" /><span>Saving…</span></>
                 : saved
                   ? <><CheckCircle2 className="w-3 h-3" /><span>Saved</span></>
-                  : <><Clock className="w-3 h-3" /><span>{formatDate(page.updated_at)}</span></>
+                  : <><Clock className="w-3 h-3" /><span className="hidden sm:inline">{formatDate(page.updated_at)}</span></>
               }
             </div>
           )}
 
-          <div className="w-px h-3 bg-gray-200" />
+          <div className="w-px h-3 bg-gray-200 flex-shrink-0" />
 
+          {/* Pin button — editor-only */}
           {!viewerMode && (
             <button
-              onClick={async () => { await updatePage(page.id, { is_pinned: !page.is_pinned }); showToast(page.is_pinned ? 'Unpinned' : 'Pinned') }}
-              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg transition-colors ${
+              onClick={async () => {
+                await updatePage(page.id, { is_pinned: !page.is_pinned })
+                showToast(page.is_pinned ? 'Unpinned' : 'Pinned')
+              }}
+              className={`flex items-center gap-1 sm:gap-1.5 text-xs px-2 sm:px-2.5 py-1 rounded-lg transition-colors flex-shrink-0 ${
                 page.is_pinned
                   ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
                   : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
-              }`}>
+              }`}
+            >
               {page.is_pinned ? <Pin className="w-3 h-3" /> : <PinOff className="w-3 h-3" />}
-              <span>{page.is_pinned ? 'Pinned' : 'Pin'}</span>
+              <span className="hidden sm:inline">{page.is_pinned ? 'Pinned' : 'Pin'}</span>
             </button>
           )}
 
+          {/* Comments toggle */}
           <button
             onClick={() => setShowComments(!showComments)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-colors flex-shrink-0 ${
               showComments
                 ? 'bg-brand-100 text-brand-700 border border-brand-200'
                 : 'bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700'
-            }`}>
+            }`}
+          >
             <MessageSquare className="w-3 h-3" />
-            Comments
+            <span className="hidden xs:inline">Comments</span>
             {comments.length > 0 && (
-              <span className="bg-brand-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs font-bold">{comments.length}</span>
+              <span className="bg-brand-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs font-bold">
+                {comments.length}
+              </span>
             )}
           </button>
         </div>
       </div>
 
-      {/* Content + comments */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Editor */}
-        <div className={`flex-1 overflow-hidden ${showComments ? 'border-r border-gray-100' : ''}`}>
-          <NoteEditor content={content}
-            onChange={viewerMode ? undefined : (html) => { setContent(html); scheduleAutoSave(html) }}
-            readOnly={viewerMode} />
+      {/* ── Editor + Comments ── */}
+      <div className="flex flex-1 overflow-hidden relative">
+
+        {/* Editor area */}
+        <div className={`flex-1 overflow-hidden transition-all ${
+          showComments ? 'md:border-r md:border-gray-100' : ''
+        }`}>
+          <NoteEditor
+            content={content}
+            onChange={viewerMode ? undefined : (html) => {
+              setContent(html)
+              scheduleAutoSave(html)
+            }}
+            readOnly={viewerMode}
+          />
         </div>
 
-        {/* Comments panel */}
+        {/* ── Comments panel ── */}
         {showComments && (
           <>
-            {/* Mobile backdrop */}
-            <div className="fixed inset-0 bg-black/40 z-10 md:hidden" onClick={() => setShowComments(false)} />
-            <div className="fixed inset-x-0 bottom-0 h-[70%] md:relative md:h-auto md:inset-auto md:w-72 flex flex-col bg-gray-50 flex-shrink-0 animate-slide-up-sheet md:animate-slide-in-right border-t md:border-t-0 md:border-l border-gray-200 z-20 md:z-auto rounded-t-2xl md:rounded-none shadow-2xl md:shadow-none">
-            <div className="px-4 py-3 border-b border-gray-200 bg-white">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                  <MessageSquare className="w-3.5 h-3.5 text-brand-500" /> Comments
-                </h3>
-                <div className="flex items-center gap-2">
-                  {isAdmin && (
-                    <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-semibold border border-purple-200">Admin</span>
-                  )}
-                  {!viewerMode && (
-                    <button onClick={() => setShowComments(false)}
-                      className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              {viewerMode && <p className="text-xs text-gray-400 mt-0.5">Leave a reply or comment below</p>}
-              {!isAdmin && !viewerMode && <p className="text-xs text-gray-400 mt-0.5">Admin feedback appears here</p>}
-            </div>
+            {/* Mobile: full-screen overlay backdrop */}
+            <div
+              className="fixed inset-0 bg-black/40 z-20 md:hidden"
+              onClick={() => !viewerMode && setShowComments(false)}
+            />
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-              {loadingComments
-                ? <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 text-gray-400 animate-spin" /></div>
-                : comments.length === 0
-                  ? <div className="flex flex-col items-center py-8 text-center">
-                      <div className="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center mb-2">
-                        <MessageSquare className="w-4 h-4 text-gray-300" />
-                      </div>
-                      <p className="text-gray-500 text-sm font-medium">No comments yet</p>
-                      <p className="text-gray-400 text-xs mt-1">Be the first to leave a comment</p>
+            {/*
+              Mobile  → bottom sheet sliding up (fixed, z-30)
+              Tablet+ → side panel (relative, natural flow)
+            */}
+            <div className={`
+              fixed inset-x-0 bottom-0 z-30 flex flex-col
+              bg-white border-t border-gray-200 rounded-t-2xl shadow-2xl
+              transition-transform duration-300
+              h-[75vh] sm:h-[70vh]
+              md:relative md:inset-auto md:h-auto md:z-auto
+              md:w-72 md:border-t-0 md:border-l md:border-gray-100
+              md:rounded-none md:shadow-none md:flex
+            `}>
+
+              {/* Panel header */}
+              <div className="px-4 py-3 border-b border-gray-200 bg-white flex-shrink-0 rounded-t-2xl md:rounded-none">
+                {/* Drag handle — mobile only */}
+                <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-3 md:hidden" />
+
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                    <MessageSquare className="w-3.5 h-3.5 text-brand-500" />
+                    Comments
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    {isAdmin && (
+                      <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-semibold border border-purple-200">
+                        Admin
+                      </span>
+                    )}
+                    {/* Always show close on mobile; hide in viewer mode on desktop */}
+                    {(!viewerMode || true) && (
+                      <button
+                        onClick={() => setShowComments(false)}
+                        className={`text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors ${
+                          viewerMode ? 'md:hidden' : ''
+                        }`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {viewerMode && (
+                  <p className="text-xs text-gray-400 mt-0.5">Leave a reply or comment below</p>
+                )}
+                {!isAdmin && !viewerMode && (
+                  <p className="text-xs text-gray-400 mt-0.5">Admin feedback appears here</p>
+                )}
+              </div>
+
+              {/* Comment list */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+                {loadingComments
+                  ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
                     </div>
-                  : comments.map((c) => (
-                      <div key={c.id} className="group bg-white border border-gray-200 rounded-xl p-3 animate-fade-in shadow-soft">
+                  )
+                  : comments.length === 0
+                    ? (
+                      <div className="flex flex-col items-center py-8 text-center">
+                        <div className="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center mb-2">
+                          <MessageSquare className="w-4 h-4 text-gray-300" />
+                        </div>
+                        <p className="text-gray-500 text-sm font-medium">No comments yet</p>
+                        <p className="text-gray-400 text-xs mt-1">Be the first to leave a comment</p>
+                      </div>
+                    )
+                    : comments.map((c) => (
+                      <div
+                        key={c.id}
+                        className="group bg-white border border-gray-200 rounded-xl p-3 animate-fade-in shadow-soft"
+                      >
                         <div className="flex items-start gap-2.5 mb-2">
                           <Avatar name={c.full_name} size="sm" />
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-xs font-semibold text-gray-800">{c.full_name}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs font-semibold text-gray-800 truncate">
+                                {c.full_name}
+                              </p>
                               {c.commenter_role === 'admin' && (
-                                <span className="text-xs bg-purple-100 text-purple-600 px-1.5 py-0 rounded-full font-medium border border-purple-200">Admin</span>
+                                <span className="text-xs bg-purple-100 text-purple-600 px-1.5 rounded-full font-medium border border-purple-200 flex-shrink-0">
+                                  Admin
+                                </span>
                               )}
                             </div>
                             <p className="text-xs text-gray-400">{formatRelative(c.created_at)}</p>
                           </div>
                           {isAdmin && (
-                            <button onClick={() => setDeleteCommentId(c.id)}
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all">
+                            <button
+                              onClick={() => setDeleteCommentId(c.id)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all flex-shrink-0"
+                            >
                               <Trash2 className="w-3 h-3" />
                             </button>
                           )}
                         </div>
-                        <p className="text-sm text-gray-600 leading-relaxed">{c.comment}</p>
+                        <p className="text-sm text-gray-600 leading-relaxed break-words">
+                          {c.comment}
+                        </p>
                       </div>
                     ))
-              }
-            </div>
+                }
+              </div>
 
-            {/* Comment form — available to ALL users (admin + employee) */}
-            <div className="p-3 border-t border-gray-200 bg-white">
-              <form onSubmit={async (e) => {
-                e.preventDefault()
-                if (!commentText.trim()) return
-                try {
-                  await addComment(page.id, profile.id, commentText)
-                  setCommentText('')
-                  await loadComments()
-                  showToast('Comment posted')
-                } catch (err) { showToast(err.message, 'error') }
-              }} className="space-y-2">
-                <textarea value={commentText} onChange={(e) => setCommentText(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) e.currentTarget.form.requestSubmit() }}
-                  rows={3} placeholder={isAdmin ? 'Write feedback… (Ctrl+Enter)' : 'Write a reply… (Ctrl+Enter)'}
-                  className="w-full bg-gray-50 border border-gray-200 focus:border-brand-400 focus:shadow-glow rounded-xl px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 outline-none resize-none transition-all" />
-                <button type="submit" disabled={!commentText.trim()}
-                  className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold py-2.5 rounded-xl transition-colors shadow-sm">
-                  <Send className="w-3.5 h-3.5" /> {isAdmin ? 'Post Comment' : 'Post Reply'}
-                </button>
-              </form>
+              {/* Comment input — available to all users */}
+              <div className="p-3 border-t border-gray-200 bg-white flex-shrink-0">
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault()
+                    if (!commentText.trim()) return
+                    try {
+                      await addComment(page.id, profile.id, commentText)
+                      setCommentText('')
+                      await loadComments()
+                      showToast('Comment posted')
+                    } catch (err) {
+                      showToast(err.message, 'error')
+                    }
+                  }}
+                  className="space-y-2"
+                >
+                  <textarea
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.ctrlKey) e.currentTarget.form.requestSubmit()
+                    }}
+                    rows={3}
+                    placeholder={isAdmin ? 'Write feedback… (Ctrl+Enter)' : 'Write a reply… (Ctrl+Enter)'}
+                    className="w-full bg-gray-50 border border-gray-200 focus:border-brand-400 focus:shadow-glow rounded-xl px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 outline-none resize-none transition-all"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!commentText.trim()}
+                    className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold py-2.5 rounded-xl transition-colors shadow-sm"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    {isAdmin ? 'Post Comment' : 'Post Reply'}
+                  </button>
+                </form>
+              </div>
             </div>
-          </div>
           </>
         )}
       </div>
 
-      <ConfirmModal open={!!deleteCommentId} onClose={() => setDeleteCommentId(null)}
-        onConfirm={async () => { await deleteComment(deleteCommentId); setComments(prev => prev.filter(c => c.id !== deleteCommentId)); showToast('Deleted') }}
-        title="Delete Comment" message="This comment will be permanently removed." danger />
+      <ConfirmModal
+        open={!!deleteCommentId}
+        onClose={() => setDeleteCommentId(null)}
+        onConfirm={async () => {
+          await deleteComment(deleteCommentId)
+          setComments(prev => prev.filter(c => c.id !== deleteCommentId))
+          showToast('Deleted')
+        }}
+        title="Delete Comment"
+        message="This comment will be permanently removed."
+        danger
+      />
     </div>
   )
 }
