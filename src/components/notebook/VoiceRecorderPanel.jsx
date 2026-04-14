@@ -22,6 +22,26 @@ const isIOS = () =>
   typeof navigator !== 'undefined' &&
   /iPhone|iPad|iPod/i.test(navigator.userAgent)
 
+/**
+ * Pick the best supported MIME type for this device.
+ * iOS Safari only supports audio/mp4 (AAC).
+ * Android Chrome supports audio/webm.
+ * Fallback to empty string → browser picks its default.
+ */
+function getBestMimeType() {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+  ]
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) return mime
+  }
+  return ''
+}
+
 export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const [isRecording, setIsRecording]     = useState(false)
   const [liveText, setLiveText]           = useState('')
@@ -32,7 +52,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const [lang, setLang]                   = useState('en-US')
   const [audioBlob, setAudioBlob]         = useState(null)
   const [audioDuration, setAudioDuration] = useState(0)
-  // Mobile: which tab is active — 'record' or 'transcript'
   const [mobileTab, setMobileTab]         = useState('record')
 
   const recognitionRef     = useRef(null)
@@ -42,6 +61,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const isRecordingRef     = useRef(false)
   const mediaRecorderRef   = useRef(null)
   const audioChunksRef     = useRef([])
+  const audioStreamRef     = useRef(null)   // keep stream ref for cleanup
   const timerRef           = useRef(null)
   const durationRef        = useRef(0)
   const restartTimerRef    = useRef(null)
@@ -56,6 +76,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     if (!SR) setError('Speech Recognition not supported. Please use Chrome or Edge.')
   }, [])
 
+  // Cleanup on unmount
   useEffect(() => () => {
     clearInterval(timerRef.current)
     clearTimeout(restartTimerRef.current)
@@ -64,6 +85,8 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       if (mediaRecorderRef.current?.state !== 'inactive')
         mediaRecorderRef.current?.stop()
     } catch {}
+    // Always release the mic stream
+    audioStreamRef.current?.getTracks().forEach(t => t.stop())
   }, [])
 
   const formatDuration = (secs) => {
@@ -172,25 +195,42 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     setAudioDuration(0)
     audioChunksRef.current     = []
 
-    if (!isMobile()) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : ''
-        const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
-        mr.ondataavailable = (e) => { if (e.data?.size > 0) audioChunksRef.current.push(e.data) }
-        mr.onstop = () => {
-          const blob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' })
-          setAudioBlob(blob)
-          stream.getTracks().forEach(t => t.stop())
-        }
-        mr.start(200)
-        mediaRecorderRef.current = mr
-      } catch { /* audio capture is optional */ }
+    // ── Audio capture: works on BOTH desktop and mobile ──
+    // We always try to start MediaRecorder; if the browser refuses we just
+    // skip the audio track silently (transcript still works).
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      audioStreamRef.current = stream
+
+      const mimeType = getBestMimeType()
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
+
+      mr.ondataavailable = (e) => {
+        if (e.data?.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      mr.onstop = () => {
+        // Build blob with the MIME type actually used by the recorder
+        const usedMime = mr.mimeType || mimeType || 'audio/webm'
+        const blob = new Blob(audioChunksRef.current, { type: usedMime })
+        if (blob.size > 0) setAudioBlob(blob)
+        // Release mic tracks AFTER the recorder finishes
+        stream.getTracks().forEach(t => t.stop())
+        audioStreamRef.current = null
+      }
+
+      // Collect chunks every 200 ms so we don't lose data on mobile
+      mr.start(200)
+      mediaRecorderRef.current = mr
+    } catch (err) {
+      // getUserMedia failed (permission denied or device busy)
+      // We still fall through so speech recognition can work
+      console.warn('MediaRecorder init failed:', err)
     }
 
-    if (isMobile()) await new Promise(r => setTimeout(r, 200))
+    // Small delay on mobile so the mic stream settles before SpeechRecognition
+    // tries to grab the same hardware audio device
+    if (isMobile()) await new Promise(r => setTimeout(r, 300))
 
     spawn()
     setIsRecording(true)
@@ -213,12 +253,14 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     clearTimeout(restartTimerRef.current)
     try { recognitionRef.current?.stop() } catch {}
     setTimeout(() => { try { recognitionRef.current?.abort() } catch {} }, 350)
+
+    // Stop MediaRecorder — onstop will build the blob
     try {
       if (mediaRecorderRef.current?.state !== 'inactive')
         mediaRecorderRef.current?.stop()
     } catch {}
+
     setIsRecording(false)
-    // Switch to transcript tab on mobile after done
     if (isMobile()) setMobileTab('transcript')
   }
 
@@ -239,11 +281,8 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const cleanWithAI = async () => {
     const raw = finalText.trim()
     if (!raw) return
-    setCleaning(true)
-    setError('')
-
+    setCleaning(true); setError('')
     const langLabel = LANGS.find(l => l.code === lang)?.label?.replace(/^\S+\s*/, '') ?? 'the same language as the input'
-
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -269,6 +308,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const handleSaveToNotebook = async () => {
     const transcript = (cleanedText || finalText).trim()
     if (!transcript && !audioBlob) { onClose(); return }
+
     let audioBase64 = ''
     if (audioBlob) {
       audioBase64 = await new Promise(resolve => {
@@ -277,6 +317,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         reader.readAsDataURL(audioBlob)
       })
     }
+
     onInsert({
       type: 'voicerecording',
       attrs: {
@@ -308,21 +349,17 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         className="w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
         style={{ maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}
       >
-
         {/* ── Header ── */}
         <div
           className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 flex-shrink-0"
           style={{ background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)' }}
         >
           <div
-            className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all flex-shrink-0 ${
-              isRecording ? 'bg-red-500' : 'bg-violet-600'
-            }`}
+            className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all flex-shrink-0 ${isRecording ? 'bg-red-500' : 'bg-violet-600'}`}
             style={isRecording ? { animation: 'pulse 1.5s infinite' } : {}}
           >
             <Mic className="w-4 h-4 text-white" />
           </div>
-
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-bold text-gray-900">Voice Recording</h3>
             <p className="text-xs text-gray-500 mt-0.5 truncate">
@@ -333,7 +370,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
                   : 'Real-time transcription + AI cleanup'}
             </p>
           </div>
-
           <button
             onClick={hasContent && !isRecording ? handleSaveToNotebook : handleClose}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex-shrink-0 shadow-sm ${
@@ -371,7 +407,9 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
             >
               📝 Transcript
               {hasContent && (
-                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-violet-500 text-white text-[9px] font-bold">{wordCount > 99 ? '99+' : wordCount}</span>
+                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-violet-500 text-white text-[9px] font-bold">
+                  {wordCount > 99 ? '99+' : wordCount}
+                </span>
               )}
             </button>
           </div>
@@ -380,15 +418,13 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         {/* ── Body ── */}
         <div className="p-4 space-y-3 overflow-y-auto flex-1">
 
-          {/* RECORD TAB (or desktop — always shown) */}
+          {/* RECORD TAB (or desktop) */}
           {(!mobile || mobileTab === 'record') && (
             <>
               {/* Language selector */}
               {!isRecording && !hasContent && (
                 <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">
-                    Language / Wika
-                  </label>
+                  <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Language / Wika</label>
                   <select
                     value={lang}
                     onChange={e => setLang(e.target.value)}
@@ -421,14 +457,20 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
                 </div>
               )}
 
-              {/* Audio preview — desktop only */}
-              {audioBlob && !isRecording && !mobile && (
+              {/* Audio preview — shown on ALL devices once recording is done */}
+              {audioBlob && !isRecording && (
                 <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
                   <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
                     🎧 Audio Preview
                     <span className="font-normal text-violet-500">· will be saved in notebook</span>
                   </p>
-                  <audio controls className="w-full" src={URL.createObjectURL(audioBlob)} />
+                  {/* Use object URL — works on both iOS and Android */}
+                  <audio
+                    controls
+                    className="w-full"
+                    src={URL.createObjectURL(audioBlob)}
+                    style={{ borderRadius: 8 }}
+                  />
                 </div>
               )}
 
@@ -439,7 +481,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
                 </div>
               )}
 
-              {/* ── Action buttons ── */}
+              {/* Action buttons */}
               <div className="space-y-2 pt-1">
                 {isRecording ? (
                   <div className="flex gap-2">
@@ -501,12 +543,12 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
                   ? <p>🎙 Tap <strong>Done Recording</strong> when finished — then check Transcript tab</p>
                   : <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
                 }
-                <p>💾 {mobile ? 'Transcript saved into your note' : 'Saves both audio recording + transcript into your note'}</p>
+                <p>💾 Saves both audio recording + transcript into your note</p>
               </div>
             </>
           )}
 
-          {/* TRANSCRIPT TAB (mobile) or always shown (desktop) */}
+          {/* TRANSCRIPT TAB (mobile) or always (desktop) */}
           {(!mobile || mobileTab === 'transcript') && (
             <>
               {/* AI cleaned badge */}
@@ -517,20 +559,30 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
                 </div>
               )}
 
+              {/* Audio preview in transcript tab too (mobile) */}
+              {mobile && audioBlob && !isRecording && (
+                <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
+                  <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
+                    🎧 Audio Preview
+                  </p>
+                  <audio
+                    controls
+                    className="w-full"
+                    src={URL.createObjectURL(audioBlob)}
+                    style={{ borderRadius: 8 }}
+                  />
+                </div>
+              )}
+
               {/* Transcript box */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-xs font-semibold text-gray-600">Transcript</p>
-                  {wordCount > 0 && (
-                    <span className="text-[10px] text-gray-400">{wordCount} words</span>
-                  )}
+                  {wordCount > 0 && <span className="text-[10px] text-gray-400">{wordCount} words</span>}
                 </div>
                 <div
                   className="min-h-[140px] max-h-[280px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed transition-colors"
-                  style={{
-                    background: '#fafafa',
-                    borderColor: isRecording ? '#fca5a5' : '#e5e7eb'
-                  }}
+                  style={{ background: '#fafafa', borderColor: isRecording ? '#fca5a5' : '#e5e7eb' }}
                 >
                   {displayFinal && <span className="text-gray-800">{displayFinal}</span>}
                   {liveText && (
@@ -546,7 +598,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
                 </div>
               </div>
 
-              {/* Mobile: show AI cleanup & save here too */}
+              {/* Mobile: AI cleanup + save in transcript tab */}
               {mobile && hasContent && !isRecording && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   {!cleanedText && (
