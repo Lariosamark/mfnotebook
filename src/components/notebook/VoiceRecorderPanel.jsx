@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { CheckCheck, Mic, Sparkles, Square, X, StopCircle, AudioLines } from 'lucide-react'
+import { CheckCheck, Mic, Sparkles, Square, X, StopCircle } from 'lucide-react'
 
 const LANGS = [
   { code: 'en-US',  label: '🇺🇸 English (US)' },
@@ -23,24 +23,15 @@ const isIOS = () =>
   /iPhone|iPad|iPod/i.test(navigator.userAgent)
 
 export default function VoiceRecorderPanel({ onInsert, onClose }) {
-  const [isRecording, setIsRecording]           = useState(false)
-  const [liveText, setLiveText]                 = useState('')
-  const [finalText, setFinalText]               = useState('')
-  const [cleaning, setCleaning]                 = useState(false)
-  const [cleanedText, setCleanedText]           = useState('')
-  const [error, setError]                       = useState('')
-  const [lang, setLang]                         = useState('en-US')
-  const [audioBlob, setAudioBlob]               = useState(null)
-  const [audioDuration, setAudioDuration]       = useState(0)
-
-  // ── Mobile audio clip (recorded AFTER transcript, when mic is free) ──
-  const [mobileAudioRecording, setMobileAudioRecording] = useState(false)
-  const [mobileAudioBlob, setMobileAudioBlob]           = useState(null)
-  const [mobileAudioDuration, setMobileAudioDuration]   = useState(0)
-  const mobileAudioMRRef    = useRef(null)
-  const mobileAudioChunks   = useRef([])
-  const mobileAudioTimer    = useRef(null)
-  const mobileAudioDurRef   = useRef(0)
+  const [isRecording, setIsRecording]     = useState(false)
+  const [liveText, setLiveText]           = useState('')
+  const [finalText, setFinalText]         = useState('')
+  const [cleaning, setCleaning]           = useState(false)
+  const [cleanedText, setCleanedText]     = useState('')
+  const [error, setError]                 = useState('')
+  const [lang, setLang]                   = useState('en-US')
+  const [audioBlob, setAudioBlob]         = useState(null)
+  const [audioDuration, setAudioDuration] = useState(0)
 
   const recognitionRef    = useRef(null)
   const finalAccumRef     = useRef('')
@@ -70,13 +61,10 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     generationRef.current += 1
     clearInterval(timerRef.current)
     clearTimeout(restartTimerRef.current)
-    clearInterval(mobileAudioTimer.current)
     try { recognitionRef.current?.abort() } catch {}
     try {
-      if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop()
-    } catch {}
-    try {
-      if (mobileAudioMRRef.current?.state !== 'inactive') mobileAudioMRRef.current?.stop()
+      if (mediaRecorderRef.current?.state !== 'inactive')
+        mediaRecorderRef.current?.stop()
     } catch {}
   }, [])
 
@@ -89,76 +77,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const clearTimers = () => {
     clearInterval(timerRef.current)
     clearTimeout(restartTimerRef.current)
-  }
-
-  /*
-   * ══════════════════════════════════════════════════════════════
-   *  MOBILE MICROPHONE LIMITATION — READ THIS BEFORE CHANGING
-   * ══════════════════════════════════════════════════════════════
-   *
-   *  On mobile, SpeechRecognition and MediaRecorder CANNOT share
-   *  the mic simultaneously — one kills the other.
-   *
-   *  SOLUTION: Two-phase recording on mobile:
-   *    Phase 1 — SpeechRecognition only  → captures transcript
-   *    Phase 2 — MediaRecorder only      → captures audio clip
-   *              (shown after transcript is done, mic is now free)
-   *
-   *  Desktop: both run in parallel as before.
-   * ══════════════════════════════════════════════════════════════
-   */
-
-  // ── Phase 2 mobile: start audio-only recording ──
-  const startMobileAudio = async () => {
-    setError('')
-    mobileAudioChunks.current = []
-    mobileAudioDurRef.current = 0
-    setMobileAudioDuration(0)
-    setMobileAudioBlob(null)
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm'
-
-      const mr = new MediaRecorder(stream, { mimeType })
-      mr.ondataavailable = (e) => {
-        if (e.data?.size > 0) mobileAudioChunks.current.push(e.data)
-      }
-      mr.onstop = () => {
-        const blob = new Blob(mobileAudioChunks.current, { type: mimeType })
-        setMobileAudioBlob(blob)
-        stream.getTracks().forEach(t => t.stop())
-        clearInterval(mobileAudioTimer.current)
-      }
-      mr.start(200)
-      mobileAudioMRRef.current = mr
-      setMobileAudioRecording(true)
-
-      mobileAudioTimer.current = setInterval(() => {
-        mobileAudioDurRef.current += 1
-        setMobileAudioDuration(mobileAudioDurRef.current)
-      }, 1000)
-    } catch {
-      setError('Could not access microphone for audio recording.')
-    }
-  }
-
-  const stopMobileAudio = () => {
-    clearInterval(mobileAudioTimer.current)
-    const mr = mobileAudioMRRef.current
-    if (mr?.state !== 'inactive') try { mr.stop() } catch {}
-    mobileAudioMRRef.current = null
-    setMobileAudioRecording(false)
-  }
-
-  const discardMobileAudio = () => {
-    stopMobileAudio()
-    setMobileAudioBlob(null)
-    setMobileAudioDuration(0)
   }
 
   const buildRecognition = useCallback((langCode, gen) => {
@@ -285,8 +203,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     setFinalText('')
     setCleanedText('')
     setAudioBlob(null)
-    setMobileAudioBlob(null)
-    setMobileAudioDuration(0)
     finalAccumRef.current     = ''
     interimAccumRef.current   = ''
     lastFinalChunkRef.current = ''
@@ -297,30 +213,33 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     generationRef.current    += 1
     clearTimers()
 
-    // Desktop: run MediaRecorder in parallel — safe, mic isn't exclusive
-    if (!isMobile()) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : MediaRecorder.isTypeSupported('audio/mp4')
-            ? 'audio/mp4'
-            : 'audio/webm'
-        const mr = new MediaRecorder(stream, { mimeType })
-        mr.ondataavailable = (e) => {
-          if (e.data?.size > 0) audioChunksRef.current.push(e.data)
-        }
-        mr.onstop = () => {
-          const blob = new Blob(audioChunksRef.current, { type: mimeType })
-          setAudioBlob(blob)
-          stream.getTracks().forEach(t => t.stop())
-        }
-        mr.start(200)
-        mediaRecorderRef.current = mr
-      } catch { /* audio is optional */ }
+    // ── MediaRecorder: ENABLED FOR MOBILE ──
+    // The user requested both Audio and Transcript on mobile.
+    // We attempt to start MediaRecorder. 
+    // Note: On some mobile devices, this might interrupt SpeechRecognition.
+    // If that happens, we prioritize having the audio file saved.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+          ? 'audio/mp4'
+          : 'audio/webm'
+      const mr = new MediaRecorder(stream, { mimeType })
+      mr.ondataavailable = (e) => {
+        if (e.data?.size > 0) audioChunksRef.current.push(e.data)
+      }
+      mr.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: mimeType })
+        setAudioBlob(blob)
+        stream.getTracks().forEach(t => t.stop())
+      }
+      mr.start(200)
+      mediaRecorderRef.current = mr
+    } catch (err) {
+      console.error("MediaRecorder error:", err)
+      // If this fails, we continue with transcript only
     }
-
-    if (isMobile()) await new Promise(r => setTimeout(r, 150))
 
     spawn()
     setIsRecording(true)
@@ -406,19 +325,16 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
 
   const handleSaveToNotebook = async () => {
     const transcript = (cleanedText || finalText).trim()
-    const blobToSave = audioBlob || mobileAudioBlob
-    if (!transcript && !blobToSave) { onClose(); return }
+    if (!transcript && !audioBlob) { onClose(); return }
 
     let audioBase64 = ''
-    if (blobToSave) {
+    if (audioBlob) {
       audioBase64 = await new Promise(resolve => {
         const reader = new FileReader()
         reader.onload = () => resolve(reader.result)
-        reader.readAsDataURL(blobToSave)
+        reader.readAsDataURL(audioBlob)
       })
     }
-
-    const totalDuration = audioDuration || mobileAudioDuration
 
     onInsert({
       type: 'voicerecording',
@@ -426,7 +342,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
         'data-audio':      audioBase64,
         'data-transcript': transcript,
         'data-timestamp':  new Date().toLocaleString(),
-        'data-duration':   formatDuration(totalDuration),
+        'data-duration':   formatDuration(audioDuration),
       },
     })
     onClose()
@@ -434,16 +350,12 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
 
   const handleClose = () => {
     if (isRecording) stopRecording()
-    if (mobileAudioRecording) stopMobileAudio()
     onClose()
   }
 
   const displayFinal = cleanedText || finalText
   const hasContent   = finalText.trim().length > 0
   const wordCount    = finalText.trim() ? finalText.trim().split(/\s+/).length : 0
-  const mobile       = isMobile()
-  // Show mobile audio phase when transcript is done and we're on mobile
-  const showMobileAudioPhase = mobile && hasContent && !isRecording
 
   return (
     <div
@@ -461,9 +373,9 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
         >
           <div
             className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all flex-shrink-0 ${
-              isRecording || mobileAudioRecording ? 'bg-red-500' : 'bg-violet-600'
+              isRecording ? 'bg-red-500' : 'bg-violet-600'
             }`}
-            style={isRecording || mobileAudioRecording ? { animation: 'pulse 1.5s infinite' } : {}}
+            style={isRecording ? { animation: 'pulse 1.5s infinite' } : {}}
           >
             <Mic className="w-4 h-4 text-white" />
           </div>
@@ -473,23 +385,21 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             <p className="text-xs text-gray-500 mt-0.5 truncate">
               {isRecording
                 ? `🔴 Recording… ${formatDuration(audioDuration)}`
-                : mobileAudioRecording
-                  ? `🔴 Audio clip… ${formatDuration(mobileAudioDuration)}`
-                  : hasContent
-                    ? `${wordCount} words captured`
-                    : 'Real-time transcription + AI cleanup'}
+                : hasContent
+                  ? `${wordCount} words captured`
+                  : 'Real-time transcription + AI cleanup'}
             </p>
           </div>
 
           <button
-            onClick={hasContent && !isRecording && !mobileAudioRecording ? handleSaveToNotebook : handleClose}
+            onClick={hasContent && !isRecording ? handleSaveToNotebook : handleClose}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex-shrink-0 shadow-sm ${
-              hasContent && !isRecording && !mobileAudioRecording
+              hasContent && !isRecording
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                 : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
             }`}
           >
-            {hasContent && !isRecording && !mobileAudioRecording
+            {hasContent && !isRecording
               ? <><CheckCheck className="w-3.5 h-3.5" /> Save</>
               : <><X className="w-3.5 h-3.5" /> Close</>}
           </button>
@@ -516,7 +426,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             </div>
           )}
 
-          {/* Live wave indicator — transcript recording */}
+          {/* Live wave indicator */}
           {isRecording && (
             <div className="flex items-center gap-3 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
               <div className="flex items-end gap-0.5 flex-shrink-0 h-5">
@@ -538,40 +448,12 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             </div>
           )}
 
-          {/* Live wave indicator — mobile audio clip recording */}
-          {mobileAudioRecording && (
-            <div className="flex items-center gap-3 px-3 py-2.5 bg-violet-50 border border-violet-200 rounded-xl">
-              <div className="flex items-end gap-0.5 flex-shrink-0 h-5">
-                {[3, 5, 7, 5, 3, 6, 4].map((h, i) => (
-                  <div
-                    key={i}
-                    className="w-1 bg-violet-400 rounded-full"
-                    style={{
-                      height: `${h * 3}px`,
-                      animation: `pulse ${0.5 + i * 0.1}s ease-in-out infinite alternate`,
-                      animationDelay: `${i * 70}ms`,
-                    }}
-                  />
-                ))}
-              </div>
-              <span className="text-xs text-violet-600 font-semibold flex-1">
-                🎙 {formatDuration(mobileAudioDuration)} · Recording audio clip…
-              </span>
-              <button
-                onClick={stopMobileAudio}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs font-bold rounded-lg"
-              >
-                <Square className="w-3 h-3" /> Stop
-              </button>
-            </div>
-          )}
-
-          {/* Desktop audio preview */}
+          {/* Audio preview — now enabled for mobile as well */}
           {audioBlob && !isRecording && (
             <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
               <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
-                🎧 Audio Recording
-                <span className="font-normal text-violet-500">· {formatDuration(audioDuration)}</span>
+                🎧 Audio Preview
+                <span className="font-normal text-violet-500">· saved with your note</span>
               </p>
               <audio
                 controls
@@ -579,31 +461,6 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
                 preload="metadata"
                 className="w-full"
                 src={URL.createObjectURL(audioBlob)}
-              />
-            </div>
-          )}
-
-          {/* Mobile audio clip preview */}
-          {mobileAudioBlob && !mobileAudioRecording && (
-            <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-violet-700 flex items-center gap-1.5">
-                  🎧 Audio Clip
-                  <span className="font-normal text-violet-500">· {formatDuration(mobileAudioDuration)}</span>
-                </p>
-                <button
-                  onClick={discardMobileAudio}
-                  className="text-[10px] text-red-400 hover:text-red-600 font-semibold flex items-center gap-1"
-                >
-                  <X className="w-3 h-3" /> Remove
-                </button>
-              </div>
-              <audio
-                controls
-                playsInline
-                preload="metadata"
-                className="w-full"
-                src={URL.createObjectURL(mobileAudioBlob)}
               />
             </div>
           )}
@@ -618,7 +475,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
                 )}
               </div>
               <div
-                className="min-h-[100px] max-h-[200px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed transition-colors"
+                className="min-h-[100px] max-h-[220px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed transition-colors"
                 style={{
                   background: '#fafafa',
                   borderColor: isRecording ? '#fca5a5' : '#e5e7eb',
@@ -680,31 +537,16 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {/* Primary: start / record more transcript */}
-                {!mobileAudioRecording && (
-                  <button
-                    onClick={startRecording}
-                    className="flex items-center gap-2 px-4 py-2.5 text-white text-sm font-semibold rounded-xl transition-all shadow-sm"
-                    style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
-                  >
-                    <Mic className="w-4 h-4" />
-                    {hasContent ? 'Record More' : 'Start Recording'}
-                  </button>
-                )}
+                <button
+                  onClick={startRecording}
+                  className="flex items-center gap-2 px-4 py-2.5 text-white text-sm font-semibold rounded-xl transition-all shadow-sm"
+                  style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
+                >
+                  <Mic className="w-4 h-4" />
+                  {hasContent ? 'Record More' : 'Start Recording'}
+                </button>
 
-                {/* Mobile Phase 2: add audio clip button */}
-                {showMobileAudioPhase && !mobileAudioBlob && !mobileAudioRecording && (
-                  <button
-                    onClick={startMobileAudio}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 text-sm font-semibold rounded-xl transition-colors"
-                  >
-                    <AudioLines className="w-4 h-4" />
-                    Add Audio Clip
-                  </button>
-                )}
-
-                {/* AI cleanup */}
-                {hasContent && !cleanedText && !mobileAudioRecording && (
+                {hasContent && !cleanedText && (
                   <button
                     onClick={cleanWithAI}
                     disabled={cleaning}
@@ -719,8 +561,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
                   </button>
                 )}
 
-                {/* Save */}
-                {hasContent && !mobileAudioRecording && (
+                {hasContent && (
                   <button
                     onClick={handleSaveToNotebook}
                     className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm ml-auto"
@@ -737,15 +578,13 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
           <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
             {isIOS() ? (
               <p>📱 Use <strong>Safari</strong> — Chrome doesn't support voice recognition on iOS</p>
-            ) : mobile ? (
+            ) : isMobile() ? (
               <p>📱 Use <strong>Chrome</strong> for best results on Android</p>
             ) : (
               <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
             )}
             <p>
-              💾 {mobile
-                ? 'Transcript captured first, then optionally add an audio clip'
-                : 'Saves both audio recording + transcript into your note'}
+              💾 Saves both audio recording + transcript into your note
             </p>
           </div>
         </div>
