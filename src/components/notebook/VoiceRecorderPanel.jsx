@@ -33,47 +33,42 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const [audioBlob, setAudioBlob]         = useState(null)
   const [audioDuration, setAudioDuration] = useState(0)
 
-  const recognitionRef     = useRef(null)
-  const finalAccumRef      = useRef('')
-  const interimAccumRef    = useRef('')
-  const stoppedRef         = useRef(false)
-  const isRecordingRef     = useRef(false)
-  const mediaRecorderRef   = useRef(null)
-  const audioChunksRef     = useRef([])
-  const timerRef           = useRef(null)
-  const durationRef        = useRef(0)
-  const restartTimerRef    = useRef(null)
-  const langRef            = useRef(lang)
-  const spawnRef           = useRef(null)
-
-  // Generation counter — every start/stop bumps this so stale onend/onerror
-  // callbacks from dead SR instances never accidentally restart.
-  const generationRef      = useRef(0)
+  const recognitionRef   = useRef(null)
+  const finalAccumRef    = useRef('')
+  const interimAccumRef  = useRef('')
+  const stoppedRef       = useRef(false)
+  const isRecordingRef   = useRef(false)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef   = useRef([])
+  const timerRef         = useRef(null)
+  const durationRef      = useRef(0)
+  const restartTimerRef  = useRef(null)
+  const safetyTimerRef   = useRef(null)
+  const langRef          = useRef(lang)
+  const spawnRef         = useRef(null)
+  const generationRef    = useRef(0)
 
   useEffect(() => { langRef.current = lang }, [lang])
   useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
 
-  // ── Support check on mount ──
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) {
       setError('Speech Recognition not supported. Please use Chrome or Edge.')
-    } else if (isIOS()) {
-      setError(
-        'iOS has limited voice recognition. For best results use Android Chrome or a desktop browser.'
-      )
     }
   }, [])
 
-  // ── Cleanup on unmount ──
   useEffect(() => () => {
     stoppedRef.current = true
+    generationRef.current += 1
     clearInterval(timerRef.current)
     clearTimeout(restartTimerRef.current)
-    const rec = recognitionRef.current
-    if (rec) { try { rec.abort() } catch {} }
-    const mr = mediaRecorderRef.current
-    if (mr?.state !== 'inactive') { try { mr.stop() } catch {} }
+    clearTimeout(safetyTimerRef.current)
+    try { recognitionRef.current?.abort() } catch {}
+    try {
+      if (mediaRecorderRef.current?.state !== 'inactive')
+        mediaRecorderRef.current?.stop()
+    } catch {}
   }, [])
 
   const formatDuration = (secs) => {
@@ -82,21 +77,64 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
-  // ── Build one single-use SpeechRecognition instance ──
-  // gen parameter ties this instance to the current generation so stale
-  // callbacks can bail out early.
+  const clearAllTimers = () => {
+    clearInterval(timerRef.current)
+    clearTimeout(restartTimerRef.current)
+    clearTimeout(safetyTimerRef.current)
+  }
+
+  /*
+   * ══════════════════════════════════════════════════════════
+   *  WHY MOBILE TRANSCRIPT WAS BROKEN — AND HOW IT'S FIXED
+   * ══════════════════════════════════════════════════════════
+   *
+   *  BUG 1 — getUserMedia steals the mic on ALL mobile:
+   *    The mobile mic is exclusive — only ONE API can use it.
+   *    Calling getUserMedia() for MediaRecorder grabbed the mic,
+   *    so SpeechRecognition received SILENCE → zero transcript.
+   *    FIX: Never call getUserMedia on any mobile device.
+   *
+   *  BUG 2 — Wrong restart strategy per platform:
+   *    ANDROID (continuous=true):
+   *      The browser keeps the session alive across utterances.
+   *      onend should NOT fire between utterances. If it does,
+   *      it means the session crashed — we must spawn a NEW instance.
+   *      Old code spawned a new one AND the browser tried to
+   *      auto-restart → two SR objects fighting → silence.
+   *      FIX: Only spawn in onend (browser already gave up).
+   *
+   *    IOS (continuous=false):
+   *      onend fires after EVERY utterance (expected behavior).
+   *      We MUST spawn a new instance each time. Auto-restart
+   *      works if called quickly after onend (same execution context).
+   *      FIX: Spawn immediately in onend with 300ms delay.
+   *
+   *  BUG 3 — Stale callbacks from dead SR instances:
+   *    Old onend/onerror from instance #1 could fire after
+   *    instance #2 was already running, spawning ghost instances.
+   *    FIX: Generation counter — bumped on every start/stop,
+   *    every callback checks gen before acting.
+   * ══════════════════════════════════════════════════════════
+   */
+
   const buildRecognition = useCallback((langCode, gen) => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) return null
 
     const ios = isIOS()
+
     const r = new SR()
     r.lang            = langCode
-    r.continuous      = !ios          // true on Android + desktop, false only on iOS
-    r.interimResults  = !ios          // iOS misbehaves with interim results
+    r.continuous      = !ios   // true on Android+desktop, false on iOS only
+    r.interimResults  = !ios   // iOS misbehaves with interim results
     r.maxAlternatives = 1
 
     r.onresult = (e) => {
+      if (gen !== generationRef.current) return
+
+      // Got speech → recognition is working, cancel safety net
+      clearTimeout(safetyTimerRef.current)
+
       let interim = '', newFinal = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript
@@ -113,17 +151,19 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     }
 
     r.onerror = (e) => {
-      if (gen !== generationRef.current) return        // stale instance
+      if (gen !== generationRef.current) return
 
       switch (e.error) {
         case 'not-allowed':
           setError('Microphone access denied. Allow it in your browser settings.')
           stoppedRef.current = true
+          clearAllTimers()
           setIsRecording(false)
           break
         case 'audio-capture':
           setError('Microphone busy or unavailable. Close other apps using the mic.')
           stoppedRef.current = true
+          clearAllTimers()
           setIsRecording(false)
           break
         case 'network':
@@ -136,7 +176,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
             }, 800)
           }
           break
-        // aborted & no-speech are benign — ignore silently
         case 'aborted':
         case 'no-speech':
           break
@@ -146,38 +185,64 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     }
 
     r.onend = () => {
-      if (gen !== generationRef.current) return        // stale instance
+      if (gen !== generationRef.current) return
 
       setLiveText('')
       interimAccumRef.current = ''
 
-      if (!stoppedRef.current && isRecordingRef.current) {
-        // iOS needs a pause for the OS to release the audio session
-        const delay = isIOS() ? 400 : 100
-        clearTimeout(restartTimerRef.current)
-        restartTimerRef.current = setTimeout(() => {
-          if (gen === generationRef.current && !stoppedRef.current && isRecordingRef.current) {
-            spawnRef.current?.()
-          }
-        }, delay)
-      } else {
+      // User explicitly stopped — don't restart
+      if (stoppedRef.current) {
         setIsRecording(false)
+        return
       }
+
+      /*
+       * RESTART LOGIC — different timing per platform but same action:
+       *
+       * iOS (continuous=false):
+       *   onend fires after every utterance. This is EXPECTED.
+       *   We must spawn a new instance. 300ms delay gives the OS
+       *   time to release the audio session before the new one opens it.
+       *   Auto-restart works here because we're still in the same
+       *   "recording context" initiated by the user's tap.
+       *
+       * Android (continuous=true):
+       *   onend should NOT fire between utterances. If it fires,
+       *   the browser's continuous session crashed. We spawn a fresh
+       *   instance. 150ms is enough — no need for the longer iOS delay.
+       */
+
+      const delay = ios ? 300 : 150
+      clearTimeout(restartTimerRef.current)
+      restartTimerRef.current = setTimeout(() => {
+        if (gen === generationRef.current && !stoppedRef.current && isRecordingRef.current) {
+          spawnRef.current?.()
+        }
+      }, delay)
+
+      // Safety net: if no onresult fires within 5s, the restart
+      // probably failed silently — try one more spawn
+      clearTimeout(safetyTimerRef.current)
+      safetyTimerRef.current = setTimeout(() => {
+        if (gen === generationRef.current && !stoppedRef.current && isRecordingRef.current) {
+          spawnRef.current?.()
+        }
+      }, 5000)
     }
 
     return r
   }, [])
 
-  // ── Spawn a fresh SR instance and start it ──
   const spawn = useCallback(() => {
     const gen = generationRef.current
     const r = buildRecognition(langRef.current, gen)
     if (!r) return
+
     recognitionRef.current = r
     try {
       r.start()
     } catch {
-      // Race condition — retry once after a short delay
+      // Race condition — retry once
       clearTimeout(restartTimerRef.current)
       restartTimerRef.current = setTimeout(() => {
         if (gen !== generationRef.current) return
@@ -193,12 +258,10 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
 
   useEffect(() => { spawnRef.current = spawn }, [spawn])
 
-  // ── Start recording ──
   const startRecording = async () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) { setError('Not supported. Use Chrome or Edge.'); return }
 
-    // Reset all state
     setError('')
     setLiveText('')
     setFinalText('')
@@ -210,10 +273,18 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     durationRef.current     = 0
     setAudioDuration(0)
     audioChunksRef.current  = []
-    generationRef.current  += 1          // invalidate any leftover callbacks
+    generationRef.current  += 1
+    clearAllTimers()
 
-    // Only skip MediaRecorder on iOS — Android handles SR + MR together fine
-    if (!isIOS()) {
+    // ════════════════════════════════════════════
+    // MediaRecorder: DESKTOP ONLY
+    // ════════════════════════════════════════════
+    // On ALL mobile (iOS AND Android), getUserMedia
+    // steals the exclusive mic from SpeechRecognition.
+    // Result: SR receives silence, zero transcript.
+    // Only use MediaRecorder on desktop where the OS
+    // can multiplex audio between APIs.
+    if (!isMobile()) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         const mimeType = MediaRecorder.isTypeSupported('audio/webm')
@@ -233,7 +304,7 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
       } catch { /* audio capture is optional */ }
     }
 
-    // Brief pause on mobile so the OS releases any prior audio session
+    // Brief pause on mobile for OS to release any prior audio session
     if (isMobile()) await new Promise(r => setTimeout(r, 150))
 
     spawn()
@@ -244,7 +315,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     }, 1000)
   }
 
-  // ── Unified stop — saveInterim flushes any pending interim text ──
   const endRecording = useCallback((saveInterim = false) => {
     if (saveInterim) {
       const pending = interimAccumRef.current.trim()
@@ -257,23 +327,19 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     setLiveText('')
     interimAccumRef.current = ''
     stoppedRef.current      = true
-    generationRef.current  += 1          // invalidate ALL pending onend/onerror
-    clearInterval(timerRef.current)
-    clearTimeout(restartTimerRef.current)
+    generationRef.current  += 1
+    clearAllTimers()
 
-    // Capture ref before nulling — prevents onend from touching it
+    // Capture and null refs BEFORE stopping so stale callbacks can't use them
     const rec = recognitionRef.current
     recognitionRef.current = null
-
     if (rec) {
       try { rec.stop() } catch {}
       setTimeout(() => { try { rec.abort() } catch {} }, 300)
     }
 
     const mr = mediaRecorderRef.current
-    if (mr?.state !== 'inactive') {
-      try { mr.stop() } catch {}
-    }
+    if (mr?.state !== 'inactive') try { mr.stop() } catch {}
     mediaRecorderRef.current = null
 
     setIsRecording(false)
@@ -282,7 +348,6 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const handleDoneRecording = () => endRecording(true)
   const stopRecording       = () => endRecording(false)
 
-  // ── AI Cleanup ──
   const cleanWithAI = async () => {
     const raw = finalText.trim()
     if (!raw) return
@@ -325,7 +390,6 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
     }
   }
 
-  // ── Save ──
   const handleSaveToNotebook = async () => {
     const transcript = (cleanedText || finalText).trim()
     if (!transcript && !audioBlob) { onClose(); return }
@@ -356,7 +420,6 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
     onClose()
   }
 
-  // ── Derived values ──
   const displayFinal = cleanedText || finalText
   const hasContent   = finalText.trim().length > 0
   const wordCount    = finalText.trim() ? finalText.trim().split(/\s+/).length : 0
@@ -451,7 +514,7 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             </div>
           )}
 
-          {/* Audio preview — desktop & Android only */}
+          {/* Audio preview — desktop only (not available on mobile) */}
           {audioBlob && !isRecording && (
             <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
               <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
@@ -571,16 +634,25 @@ Return ONLY the cleaned ${langLabel} text. No explanation, no translation, no pr
             )}
           </div>
 
-          {/* Tips */}
+          {/* Platform-specific tips */}
           <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
-            {isIOS()
-              ? <p>🎙 Voice recognition on iOS is limited — best results on Android Chrome or desktop</p>
-              : isMobile()
-                ? <p>🎙 Tap <strong>Done Recording</strong> when finished</p>
-                : <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
-            }
+            {isIOS() ? (
+              <>
+                <p>📱 Use <strong>Safari</strong> — voice recognition doesn't work in Chrome on iOS</p>
+                <p>🎙 Text appears after each pause — tap Done when finished</p>
+              </>
+            ) : isMobile() ? (
+              <>
+                <p>📱 Use <strong>Chrome</strong> for best results on Android</p>
+                <p>🎙 Text appears as you speak — tap Done when finished</p>
+              </>
+            ) : (
+              <>
+                <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
+              </>
+            )}
             <p>
-              💾 {isIOS()
+              💾 {isMobile()
                 ? 'Transcript saved into your note'
                 : 'Saves both audio recording + transcript into your note'}
             </p>
