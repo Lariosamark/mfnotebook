@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { CheckCheck, Mic, Sparkles, Square, X, StopCircle, Loader2 } from 'lucide-react'
+import { CheckCheck, Mic, Sparkles, Square, X, StopCircle, Loader2, FileText, AudioLines } from 'lucide-react'
 
 const LANGS = [
   { code: 'en-US',  label: '🇺🇸 English (US)' },
@@ -36,20 +36,27 @@ function getBestMimeType() {
   return ''
 }
 
-export default function VoiceRecorderPanel({ onInsert, onClose }) {
-  const [isRecording, setIsRecording]     = useState(false)
-  const [liveText, setLiveText]           = useState('')
-  const [finalText, setFinalText]         = useState('')
-  const [cleaning, setCleaning]           = useState(false)
-  const [cleanedText, setCleanedText]     = useState('')
-  const [error, setError]                 = useState('')
-  const [lang, setLang]                   = useState('en-US')
-  const [audioBlob, setAudioBlob]         = useState(null)
-  const [audioDuration, setAudioDuration] = useState(0)
-  const [mobileTab, setMobileTab]         = useState('record')
-  // NEW: state for post-recording AI transcription
-  const [transcribing, setTranscribing]   = useState(false)
+// ── UI phases ─────────────────────────────────────────────────────────────────
+// idle        → nothing yet
+// recording   → mic is active
+// choose      → recording done; user picks transcribe or skip
+// transcribing→ AI is processing the audio
+// done        → transcript ready (or skipped); ready to save
+const PHASE = { IDLE: 'idle', RECORDING: 'recording', CHOOSE: 'choose', TRANSCRIBING: 'transcribing', DONE: 'done' }
 
+export default function VoiceRecorderPanel({ onInsert, onClose }) {
+  const [phase, setPhase]               = useState(PHASE.IDLE)
+  const [liveText, setLiveText]         = useState('')
+  const [finalText, setFinalText]       = useState('')
+  const [cleaning, setCleaning]         = useState(false)
+  const [cleanedText, setCleanedText]   = useState('')
+  const [error, setError]               = useState('')
+  const [lang, setLang]                 = useState('en-US')
+  const [audioBlob, setAudioBlob]       = useState(null)
+  const [audioDuration, setAudioDuration] = useState(0)
+  const [mobileTab, setMobileTab]       = useState('record')
+
+  const pendingBlobRef     = useRef(null)   // blob from mr.onstop before state flushes
   const recognitionRef     = useRef(null)
   const finalAccumRef      = useRef('')
   const interimAccumRef    = useRef('')
@@ -63,26 +70,21 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
   const restartTimerRef    = useRef(null)
   const langRef            = useRef(lang)
   const spawnRef           = useRef(null)
-  // NEW: ref so mr.onstop callback can call it without stale closure
   const transcribeAudioRef = useRef(null)
 
   useEffect(() => { langRef.current = lang }, [lang])
-  useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
+  useEffect(() => { isRecordingRef.current = phase === PHASE.RECORDING }, [phase])
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) setError('Speech Recognition not supported in this browser — audio will still be recorded and transcribed after you stop.')
+    if (!SR) setError('Speech Recognition not supported — audio will be transcribed by AI after recording.')
   }, [])
 
-  // Cleanup on unmount
   useEffect(() => () => {
     clearInterval(timerRef.current)
     clearTimeout(restartTimerRef.current)
     try { recognitionRef.current?.abort() } catch {}
-    try {
-      if (mediaRecorderRef.current?.state !== 'inactive')
-        mediaRecorderRef.current?.stop()
-    } catch {}
+    try { if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop() } catch {}
     audioStreamRef.current?.getTracks().forEach(t => t.stop())
   }, [])
 
@@ -92,16 +94,13 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 
-  // ── NEW: Post-recording audio transcription via Claude API ──────────────────
-  // On mobile the Web Speech API is unreliable; this sends the captured audio
-  // blob to Claude and uses the result as the transcript.
+  // ── AI Audio Transcription ────────────────────────────────────────────────
   const transcribeAudioWithAI = useCallback(async (blob) => {
     if (!blob || blob.size === 0) return
-    setTranscribing(true)
+    setPhase(PHASE.TRANSCRIBING)
     setError('')
 
     try {
-      // Convert blob → base64 (strip the data-URI header)
       const base64 = await new Promise((resolve, reject) => {
         const reader = new FileReader()
         reader.onload  = () => resolve(reader.result.split(',')[1])
@@ -122,62 +121,42 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
           messages: [{
             role: 'user',
             content: [
-              {
-                type: 'document',
-                source: {
-                  type: 'base64',
-                  media_type: mimeType,
-                  data: base64,
-                },
-              },
-              {
-                type: 'text',
-                text: 'Please transcribe this audio recording.',
-              },
+              { type: 'document', source: { type: 'base64', media_type: mimeType, data: base64 } },
+              { type: 'text', text: 'Please transcribe this audio recording.' },
             ],
           }],
         }),
       })
 
       const data = await res.json()
-
       if (data.error) throw new Error(data.error.message)
 
       const transcribed = data.content?.map(c => c.text || '').join('').trim()
-
       if (transcribed) {
-        // Replace (or supplement) whatever live STT captured
         finalAccumRef.current = transcribed
         setFinalText(transcribed)
-        setCleanedText('')  // allow subsequent AI-cleanup on the fresh transcript
-      } else if (!finalAccumRef.current.trim()) {
-        setError('Could not transcribe audio. Try again in a quieter environment.')
+        setCleanedText('')
+      } else {
+        setError('No speech detected. Audio is still saved.')
       }
     } catch (err) {
-      console.error('Audio transcription error:', err)
-      // Only show an error if live STT also gave nothing
-      if (!finalAccumRef.current.trim()) {
-        setError('Audio transcription unavailable. Check your connection and try again.')
-      }
+      console.error('Transcription error:', err)
+      setError('Transcription failed. Audio is still saved.')
     } finally {
-      setTranscribing(false)
+      setPhase(PHASE.DONE)
+      if (isMobile()) setMobileTab('transcript')
     }
-  }, []) // langRef is a ref so it's always current; no deps needed
+  }, [])
 
-  // Keep the ref in sync so mr.onstop (a closure) can call the latest version
   useEffect(() => { transcribeAudioRef.current = transcribeAudioWithAI }, [transcribeAudioWithAI])
 
-  // ── Speech Recognition ───────────────────────────────────────────────────────
+  // ── Speech Recognition ────────────────────────────────────────────────────
   const buildRecognition = useCallback((langCode) => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) return null
-
     const mobile = isMobile()
     const r = new SR()
-    r.lang            = langCode
-    r.continuous      = !mobile
-    r.interimResults  = !isIOS()
-    r.maxAlternatives = 1
+    r.lang = langCode; r.continuous = !mobile; r.interimResults = !isIOS(); r.maxAlternatives = 1
 
     r.onresult = (e) => {
       let interim = '', newFinal = ''
@@ -186,66 +165,35 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         if (e.results[i].isFinal) newFinal += t + ' '
         else interim += t
       }
-      if (newFinal) {
-        finalAccumRef.current += newFinal
-        setFinalText(finalAccumRef.current)
-        interimAccumRef.current = ''
-      }
-      interimAccumRef.current = interim
-      setLiveText(interim)
+      if (newFinal) { finalAccumRef.current += newFinal; setFinalText(finalAccumRef.current); interimAccumRef.current = '' }
+      interimAccumRef.current = interim; setLiveText(interim)
     }
 
     r.onerror = (e) => {
-      if (e.error === 'not-allowed') {
-        setError('Microphone access denied. Allow microphone in your browser settings.')
-        stoppedManuallyRef.current = true
-        setIsRecording(false)
-      } else if (e.error === 'audio-capture') {
-        setError('Microphone busy or unavailable. Close other apps using the mic and try again.')
-        stoppedManuallyRef.current = true
-        setIsRecording(false)
-      } else if (e.error === 'network') {
-        if (!stoppedManuallyRef.current && isRecordingRef.current) {
-          restartTimerRef.current = setTimeout(() => {
-            if (!stoppedManuallyRef.current && isRecordingRef.current) spawnRef.current?.()
-          }, 800)
-        }
-      } else if (e.error !== 'aborted' && e.error !== 'no-speech') {
-        // Non-fatal — audio transcription will still run after stopping
-        console.warn('SpeechRecognition error:', e.error)
-      }
+      if (e.error === 'not-allowed') { setError('Microphone access denied.'); stoppedManuallyRef.current = true; setPhase(PHASE.IDLE) }
+      else if (e.error === 'audio-capture') { setError('Microphone busy or unavailable.'); stoppedManuallyRef.current = true; setPhase(PHASE.IDLE) }
+      else if (e.error === 'network') {
+        if (!stoppedManuallyRef.current && isRecordingRef.current)
+          restartTimerRef.current = setTimeout(() => { if (!stoppedManuallyRef.current && isRecordingRef.current) spawnRef.current?.() }, 800)
+      } else if (e.error !== 'aborted' && e.error !== 'no-speech') console.warn('STT error:', e.error)
     }
 
     r.onend = () => {
-      setLiveText('')
-      interimAccumRef.current = ''
-      if (!stoppedManuallyRef.current && isRecordingRef.current) {
-        const delay = isMobile() ? 600 : 80
-        restartTimerRef.current = setTimeout(() => {
-          if (!stoppedManuallyRef.current && isRecordingRef.current) spawnRef.current?.()
-        }, delay)
-      } else {
-        setIsRecording(false)
-      }
+      setLiveText(''); interimAccumRef.current = ''
+      if (!stoppedManuallyRef.current && isRecordingRef.current)
+        restartTimerRef.current = setTimeout(() => { if (!stoppedManuallyRef.current && isRecordingRef.current) spawnRef.current?.() }, isMobile() ? 600 : 80)
     }
-
     return r
   }, [])
 
   const spawn = useCallback(() => {
-    const r = buildRecognition(langRef.current)
-    if (!r) return
+    const r = buildRecognition(langRef.current); if (!r) return
     recognitionRef.current = r
-    try {
-      r.start()
-    } catch {
+    try { r.start() } catch {
       restartTimerRef.current = setTimeout(() => {
         if (!stoppedManuallyRef.current && isRecordingRef.current) {
           const r2 = buildRecognition(langRef.current)
-          if (r2) {
-            recognitionRef.current = r2
-            try { r2.start() } catch {}
-          }
+          if (r2) { recognitionRef.current = r2; try { r2.start() } catch {} }
         }
       }, 400)
     }
@@ -253,179 +201,189 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
 
   useEffect(() => { spawnRef.current = spawn }, [spawn])
 
-  // ── startRecording ────────────────────────────────────────────────────────────
+  // ── startRecording ────────────────────────────────────────────────────────
   const startRecording = async () => {
-    setError('')
-    setLiveText('')
-    setFinalText('')
-    setCleanedText('')
-    setAudioBlob(null)
-    setTranscribing(false)
-    finalAccumRef.current      = ''
-    interimAccumRef.current    = ''
-    stoppedManuallyRef.current = false
-    durationRef.current        = 0
-    setAudioDuration(0)
-    audioChunksRef.current     = []
+    setError(''); setLiveText(''); setFinalText(''); setCleanedText(''); setAudioBlob(null)
+    pendingBlobRef.current = null; finalAccumRef.current = ''; interimAccumRef.current = ''
+    stoppedManuallyRef.current = false; durationRef.current = 0; setAudioDuration(0); audioChunksRef.current = []
 
-    // ── MediaRecorder (audio capture) ────────────────────────────────────────
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       audioStreamRef.current = stream
-
       const mimeType = getBestMimeType()
       const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
-
-      mr.ondataavailable = (e) => {
-        if (e.data?.size > 0) audioChunksRef.current.push(e.data)
-      }
-
+      mr.ondataavailable = (e) => { if (e.data?.size > 0) audioChunksRef.current.push(e.data) }
       mr.onstop = () => {
         const usedMime = mr.mimeType || mimeType || 'audio/webm'
         const blob = new Blob(audioChunksRef.current, { type: usedMime })
-
-        if (blob.size > 0) {
-          setAudioBlob(blob)
-
-          // ── KEY FIX: Always transcribe via AI on mobile, or as fallback on
-          //    desktop when live STT captured nothing.
-          const liveSoFar = finalAccumRef.current.trim()
-          if (isMobile() || !liveSoFar) {
-            transcribeAudioRef.current?.(blob)
-          }
-        }
-
-        stream.getTracks().forEach(t => t.stop())
-        audioStreamRef.current = null
+        if (blob.size > 0) { pendingBlobRef.current = blob; setAudioBlob(blob) }
+        stream.getTracks().forEach(t => t.stop()); audioStreamRef.current = null
       }
-
-      mr.start(200)
-      mediaRecorderRef.current = mr
-    } catch (err) {
-      console.warn('MediaRecorder init failed:', err)
-      // Speech recognition will still work if getUserMedia fails
-    }
+      mr.start(200); mediaRecorderRef.current = mr
+    } catch (err) { console.warn('MediaRecorder failed:', err) }
 
     if (isMobile()) await new Promise(r => setTimeout(r, 300))
-
-    // Try live STT (best-effort — might not work on iOS)
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (SR) spawn()
 
-    setIsRecording(true)
-    timerRef.current = setInterval(() => {
-      durationRef.current += 1
-      setAudioDuration(durationRef.current)
-    }, 1000)
+    setPhase(PHASE.RECORDING)
+    if (isMobile()) setMobileTab('record')
+    timerRef.current = setInterval(() => { durationRef.current += 1; setAudioDuration(durationRef.current) }, 1000)
   }
 
-  // ── handleDoneRecording ────────────────────────────────────────────────────
+  // ── handleDoneRecording → CHOOSE phase ───────────────────────────────────
   const handleDoneRecording = () => {
     const pending = interimAccumRef.current.trim()
-    if (pending) {
-      finalAccumRef.current += pending + ' '
-      setFinalText(finalAccumRef.current)
-      interimAccumRef.current = ''
-    }
+    if (pending) { finalAccumRef.current += pending + ' '; setFinalText(finalAccumRef.current); interimAccumRef.current = '' }
     setLiveText('')
     stoppedManuallyRef.current = true
-    clearInterval(timerRef.current)
-    clearTimeout(restartTimerRef.current)
+    clearInterval(timerRef.current); clearTimeout(restartTimerRef.current)
     try { recognitionRef.current?.stop() } catch {}
     setTimeout(() => { try { recognitionRef.current?.abort() } catch {} }, 350)
-
-    // Stop MediaRecorder — onstop will build the blob + trigger AI transcription
-    try {
-      if (mediaRecorderRef.current?.state !== 'inactive')
-        mediaRecorderRef.current?.stop()
-    } catch {}
-
-    setIsRecording(false)
-
-    // Always jump to transcript tab on mobile so the user sees the result
-    if (isMobile()) setMobileTab('transcript')
+    try { if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop() } catch {}
+    setPhase(PHASE.CHOOSE)
+    // On mobile, show the choice in the record tab (not transcript tab yet)
+    if (isMobile()) setMobileTab('record')
   }
 
-  // ── stopRecording (cancel) ─────────────────────────────────────────────────
+  // ── Cancel recording ──────────────────────────────────────────────────────
   const stopRecording = () => {
     stoppedManuallyRef.current = true
-    clearInterval(timerRef.current)
-    clearTimeout(restartTimerRef.current)
+    clearInterval(timerRef.current); clearTimeout(restartTimerRef.current)
     try { recognitionRef.current?.abort() } catch {}
-    try {
-      if (mediaRecorderRef.current?.state !== 'inactive')
-        mediaRecorderRef.current?.stop()
-    } catch {}
-    setIsRecording(false)
-    setLiveText('')
-    interimAccumRef.current = ''
+    try { if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop() } catch {}
+    setPhase(PHASE.IDLE); setLiveText(''); setFinalText(''); setAudioBlob(null)
+    pendingBlobRef.current = null; interimAccumRef.current = ''; finalAccumRef.current = ''
   }
 
-  // ── AI Cleanup ─────────────────────────────────────────────────────────────
+  // ── User chose: Transcribe ────────────────────────────────────────────────
+  const handleChooseTranscribe = () => {
+    const blob = pendingBlobRef.current
+    if (blob) {
+      transcribeAudioRef.current?.(blob)
+    } else {
+      // mr.onstop is async; wait briefly
+      setPhase(PHASE.TRANSCRIBING)
+      setTimeout(() => {
+        const b = pendingBlobRef.current
+        if (b) transcribeAudioRef.current?.(b)
+        else { setError('Audio not ready, please try again.'); setPhase(PHASE.CHOOSE) }
+      }, 700)
+    }
+  }
+
+  // ── User chose: Save audio only (skip transcript) ─────────────────────────
+  const handleChooseSkip = () => {
+    setFinalText(''); finalAccumRef.current = ''; setCleanedText('')
+    setPhase(PHASE.DONE)
+  }
+
+  // ── AI Cleanup ────────────────────────────────────────────────────────────
   const cleanWithAI = async () => {
-    const raw = finalText.trim()
-    if (!raw) return
+    const raw = finalText.trim(); if (!raw) return
     setCleaning(true); setError('')
     const langLabel = LANGS.find(l => l.code === lang)?.label?.replace(/^\S+\s*/, '') ?? 'the same language as the input'
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
+          model: 'claude-sonnet-4-20250514', max_tokens: 1000,
           system: `You are a voice transcript cleaner. The speaker's language is: ${langLabel}.\n\nRules:\n- KEEP the text in ${langLabel}. Do NOT translate it.\n- Fix punctuation and capitalization.\n- Remove filler sounds.\n- Fix obvious speech-to-text errors.\n- Form proper sentences and paragraphs.\n- Preserve ALL original meaning.\n\nReturn ONLY the cleaned text. No explanation, no preamble.`,
           messages: [{ role: 'user', content: raw }]
         })
       })
       const data = await res.json()
-      const text = data.content?.map(c => c.text || '').join('').trim()
-      setCleanedText(text || raw)
-    } catch {
-      setCleanedText(finalText)
-      setError('AI cleanup unavailable. You can still save the transcript as-is.')
-    } finally {
-      setCleaning(false)
-    }
+      setCleanedText(data.content?.map(c => c.text || '').join('').trim() || raw)
+    } catch { setCleanedText(finalText); setError('AI cleanup unavailable. You can still save as-is.') }
+    finally { setCleaning(false) }
   }
 
-  // ── Save ───────────────────────────────────────────────────────────────────
+  // ── Save ──────────────────────────────────────────────────────────────────
   const handleSaveToNotebook = async () => {
     const transcript = (cleanedText || finalText).trim()
     if (!transcript && !audioBlob) { onClose(); return }
-
     let audioBase64 = ''
     if (audioBlob) {
       audioBase64 = await new Promise(resolve => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result)
-        reader.readAsDataURL(audioBlob)
+        const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsDataURL(audioBlob)
       })
     }
-
-    onInsert({
-      type: 'voicerecording',
-      attrs: {
-        'data-audio':      audioBase64,
-        'data-transcript': transcript,
-        'data-timestamp':  new Date().toLocaleString(),
-        'data-duration':   formatDuration(audioDuration),
-      }
-    })
+    onInsert({ type: 'voicerecording', attrs: { 'data-audio': audioBase64, 'data-transcript': transcript, 'data-timestamp': new Date().toLocaleString(), 'data-duration': formatDuration(audioDuration) } })
     onClose()
   }
 
-  const handleClose = () => {
-    if (isRecording) stopRecording()
-    onClose()
-  }
+  const handleClose = () => { if (phase === PHASE.RECORDING) stopRecording(); onClose() }
 
-  const displayFinal = cleanedText || finalText
-  const hasContent   = finalText.trim().length > 0
-  const wordCount    = finalText.trim() ? finalText.trim().split(/\s+/).length : 0
-  const mobile       = isMobile()
-  // Show save button only when transcript is ready (not still transcribing)
-  const readyToSave  = hasContent && !isRecording && !transcribing
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const displayFinal   = cleanedText || finalText
+  const hasTranscript  = finalText.trim().length > 0
+  const wordCount      = hasTranscript ? finalText.trim().split(/\s+/).length : 0
+  const mobile         = isMobile()
+  const isRecording    = phase === PHASE.RECORDING
+  const isChoosing     = phase === PHASE.CHOOSE
+  const isTranscribing = phase === PHASE.TRANSCRIBING
+  const isDone         = phase === PHASE.DONE
+  const readyToSave    = isDone && !isTranscribing
+
+  const headerSubtitle = isRecording    ? `🔴 Recording… ${formatDuration(audioDuration)}`
+    : isChoosing     ? 'Recording done — transcribe or save audio only?'
+    : isTranscribing ? '⏳ Transcribing audio with AI…'
+    : isDone && hasTranscript ? `${wordCount} words transcribed`
+    : isDone         ? 'Audio ready — no transcript'
+    : 'Record voice · AI transcription · save to notebook'
+
+  // ── Choice card (reused in both tabs) ─────────────────────────────────────
+  const ChoiceCard = () => (
+    <div className="rounded-2xl border border-violet-200 bg-violet-50 overflow-hidden">
+      <div className="px-4 py-3 border-b border-violet-100">
+        <p className="text-sm font-bold text-violet-800">Recording complete! 🎉</p>
+        <p className="text-xs text-violet-500 mt-0.5">{formatDuration(audioDuration)} recorded · What would you like to do?</p>
+      </div>
+      {audioBlob && (
+        <div className="px-4 pt-3 pb-2">
+          <audio controls className="w-full" src={URL.createObjectURL(audioBlob)} style={{ borderRadius: 8 }} />
+        </div>
+      )}
+      <div className="px-4 pb-4 pt-2 flex flex-col gap-2">
+        {/* Option 1: Transcribe */}
+        <button
+          onClick={handleChooseTranscribe}
+          className="w-full flex items-center gap-3 px-4 py-3.5 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white rounded-xl transition-colors shadow-sm text-left"
+        >
+          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
+            <FileText className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-sm font-bold leading-tight">Transcribe with AI</p>
+            <p className="text-[11px] text-violet-200 mt-0.5">Convert voice to text, then save audio + transcript</p>
+          </div>
+        </button>
+
+        {/* Option 2: Skip */}
+        <button
+          onClick={handleChooseSkip}
+          className="w-full flex items-center gap-3 px-4 py-3.5 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition-colors text-left"
+        >
+          <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+            <AudioLines className="w-4 h-4 text-gray-500" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold leading-tight text-gray-800">Save audio only</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">Skip transcription — save the recording as-is</p>
+          </div>
+        </button>
+
+        {/* Record again */}
+        <button
+          onClick={startRecording}
+          className="flex items-center justify-center gap-2 px-4 py-2 text-violet-600 hover:text-violet-800 text-xs font-semibold rounded-xl transition-colors"
+        >
+          <Mic className="w-3.5 h-3.5" />
+          Record again
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <div
@@ -442,65 +400,39 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
           style={{ background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)' }}
         >
           <div
-            className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all flex-shrink-0 ${isRecording ? 'bg-red-500' : 'bg-violet-600'}`}
+            className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm transition-all flex-shrink-0 ${isRecording ? 'bg-red-500' : isTranscribing ? 'bg-violet-400' : 'bg-violet-600'}`}
             style={isRecording ? { animation: 'pulse 1.5s infinite' } : {}}
           >
-            <Mic className="w-4 h-4 text-white" />
+            {isTranscribing
+              ? <Loader2 className="w-4 h-4 text-white animate-spin" />
+              : <Mic className="w-4 h-4 text-white" />}
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-bold text-gray-900">Voice Recording</h3>
-            <p className="text-xs text-gray-500 mt-0.5 truncate">
-              {isRecording
-                ? `🔴 Recording… ${formatDuration(audioDuration)}`
-                : transcribing
-                  ? '⏳ Transcribing audio…'
-                  : hasContent
-                    ? `${wordCount} words captured`
-                    : 'Real-time transcription + AI cleanup'}
-            </p>
+            <p className="text-xs text-gray-500 mt-0.5 truncate">{headerSubtitle}</p>
           </div>
           <button
             onClick={readyToSave ? handleSaveToNotebook : handleClose}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex-shrink-0 shadow-sm ${
-              readyToSave
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+              readyToSave ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
             }`}
           >
-            {readyToSave
-              ? <><CheckCheck className="w-3.5 h-3.5" /> Save</>
-              : <><X className="w-3.5 h-3.5" /> Close</>}
+            {readyToSave ? <><CheckCheck className="w-3.5 h-3.5" /> Save</> : <><X className="w-3.5 h-3.5" /> Close</>}
           </button>
         </div>
 
         {/* ── Mobile Tab Bar ── */}
         {mobile && (
           <div className="flex border-b border-gray-100 flex-shrink-0 bg-gray-50">
-            <button
-              onClick={() => setMobileTab('record')}
-              className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${
-                mobileTab === 'record'
-                  ? 'text-violet-700 border-b-2 border-violet-600 bg-white'
-                  : 'text-gray-400 hover:text-gray-600'
-              }`}
-            >
+            <button onClick={() => setMobileTab('record')}
+              className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${mobileTab === 'record' ? 'text-violet-700 border-b-2 border-violet-600 bg-white' : 'text-gray-400'}`}>
               🎙 Record
             </button>
-            <button
-              onClick={() => setMobileTab('transcript')}
-              className={`flex-1 py-2.5 text-xs font-semibold transition-colors relative ${
-                mobileTab === 'transcript'
-                  ? 'text-violet-700 border-b-2 border-violet-600 bg-white'
-                  : 'text-gray-400 hover:text-gray-600'
-              }`}
-            >
+            <button onClick={() => setMobileTab('transcript')}
+              className={`flex-1 py-2.5 text-xs font-semibold transition-colors relative ${mobileTab === 'transcript' ? 'text-violet-700 border-b-2 border-violet-600 bg-white' : 'text-gray-400'}`}>
               📝 Transcript
-              {transcribing && (
-                <span className="ml-1 inline-flex items-center justify-center w-4 h-4">
-                  <Loader2 className="w-3 h-3 text-violet-500 animate-spin" />
-                </span>
-              )}
-              {!transcribing && hasContent && (
+              {isTranscribing && <span className="ml-1 inline-flex items-center justify-center w-4 h-4"><Loader2 className="w-3 h-3 text-violet-500 animate-spin" /></span>}
+              {!isTranscribing && hasTranscript && (
                 <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-violet-500 text-white text-[9px] font-bold">
                   {wordCount > 99 ? '99+' : wordCount}
                 </span>
@@ -512,129 +444,90 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
         {/* ── Body ── */}
         <div className="p-4 space-y-3 overflow-y-auto flex-1">
 
-          {/* RECORD TAB (or desktop) */}
+          {/* ── RECORD TAB (or desktop) ── */}
           {(!mobile || mobileTab === 'record') && (
             <>
               {/* Language selector */}
-              {!isRecording && !hasContent && !transcribing && (
+              {phase === PHASE.IDLE && (
                 <div>
                   <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Language / Wika</label>
-                  <select
-                    value={lang}
-                    onChange={e => setLang(e.target.value)}
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-violet-400 bg-gray-50 cursor-pointer"
-                  >
+                  <select value={lang} onChange={e => setLang(e.target.value)}
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-violet-400 bg-gray-50 cursor-pointer">
                     {LANGS.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
                   </select>
                 </div>
               )}
 
-              {/* Live wave indicator */}
+              {/* Live wave */}
               {isRecording && (
                 <div className="flex items-center gap-3 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
                   <div className="flex items-end gap-0.5 flex-shrink-0 h-5">
                     {[3,5,7,5,3,6,4].map((h, i) => (
-                      <div
-                        key={i}
-                        className="w-1 bg-red-400 rounded-full"
-                        style={{
-                          height: `${h * 3}px`,
-                          animation: `pulse ${0.5 + i * 0.1}s ease-in-out infinite alternate`,
-                          animationDelay: `${i * 70}ms`
-                        }}
-                      />
+                      <div key={i} className="w-1 bg-red-400 rounded-full"
+                        style={{ height: `${h * 3}px`, animation: `pulse ${0.5 + i * 0.1}s ease-in-out infinite alternate`, animationDelay: `${i * 70}ms` }} />
                     ))}
                   </div>
-                  <span className="text-xs text-red-600 font-semibold flex-1">
-                    {formatDuration(audioDuration)} · Listening — speak now
-                  </span>
+                  <span className="text-xs text-red-600 font-semibold flex-1">{formatDuration(audioDuration)} · Listening — speak now</span>
                 </div>
               )}
 
-              {/* NEW: Transcribing indicator */}
-              {transcribing && (
+              {/* Choice card */}
+              {isChoosing && <ChoiceCard />}
+
+              {/* Transcribing indicator */}
+              {isTranscribing && (
                 <div className="flex items-center gap-3 px-3 py-2.5 bg-violet-50 border border-violet-200 rounded-xl">
                   <Loader2 className="w-4 h-4 text-violet-500 animate-spin flex-shrink-0" />
-                  <span className="text-xs text-violet-700 font-semibold">
-                    Transcribing your recording with AI…
-                  </span>
+                  <span className="text-xs text-violet-700 font-semibold">Transcribing your recording with AI…</span>
                 </div>
               )}
 
-              {/* Audio preview */}
-              {audioBlob && !isRecording && (
+              {/* Audio preview (done, desktop) */}
+              {isDone && audioBlob && !mobile && (
                 <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
                   <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
-                    🎧 Audio Preview
-                    <span className="font-normal text-violet-500">· will be saved in notebook</span>
+                    🎧 Audio Preview <span className="font-normal text-violet-500">· will be saved in notebook</span>
                   </p>
-                  <audio
-                    controls
-                    className="w-full"
-                    src={URL.createObjectURL(audioBlob)}
-                    style={{ borderRadius: 8 }}
-                  />
+                  <audio controls className="w-full" src={URL.createObjectURL(audioBlob)} style={{ borderRadius: 8 }} />
                 </div>
               )}
 
               {/* Error */}
               {error && (
-                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
-                  ⚠️ {error}
-                </div>
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">⚠️ {error}</div>
               )}
 
               {/* Action buttons */}
               <div className="space-y-2 pt-1">
                 {isRecording ? (
                   <div className="flex gap-2">
-                    <button
-                      onClick={handleDoneRecording}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-sm font-bold rounded-xl transition-colors shadow-sm"
-                    >
-                      <StopCircle className="w-5 h-5" />
-                      Done Recording
+                    <button onClick={handleDoneRecording}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-4 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-sm font-bold rounded-xl transition-colors shadow-sm">
+                      <StopCircle className="w-5 h-5" /> Done Recording
                     </button>
-                    <button
-                      onClick={stopRecording}
-                      className="flex items-center gap-2 px-4 py-4 bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm font-semibold rounded-xl transition-colors"
-                    >
-                      <Square className="w-4 h-4" />
-                      Cancel
+                    <button onClick={stopRecording}
+                      className="flex items-center gap-2 px-4 py-4 bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm font-semibold rounded-xl transition-colors">
+                      <Square className="w-4 h-4" /> Cancel
                     </button>
                   </div>
-                ) : (
+                ) : !isChoosing && !isTranscribing && (
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={startRecording}
-                      disabled={transcribing}
-                      className="flex items-center gap-2 px-5 py-3 text-white text-sm font-semibold rounded-xl transition-all shadow-sm disabled:opacity-50"
-                      style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
-                    >
-                      <Mic className="w-4 h-4" />
-                      {hasContent ? 'Record More' : 'Start Recording'}
+                    <button onClick={startRecording}
+                      className="flex items-center gap-2 px-5 py-3 text-white text-sm font-semibold rounded-xl transition-all shadow-sm"
+                      style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}>
+                      <Mic className="w-4 h-4" /> {isDone ? 'Record More' : 'Start Recording'}
                     </button>
-
-                    {hasContent && !cleanedText && !transcribing && (
-                      <button
-                        onClick={cleanWithAI}
-                        disabled={cleaning}
-                        className="flex items-center gap-2 px-3 py-3 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
-                      >
-                        {cleaning
-                          ? <span className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" />
-                          : <Sparkles className="w-4 h-4" />}
+                    {isDone && hasTranscript && !cleanedText && (
+                      <button onClick={cleanWithAI} disabled={cleaning}
+                        className="flex items-center gap-2 px-3 py-3 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+                        {cleaning ? <span className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4" />}
                         {cleaning ? 'Cleaning…' : '✨ AI Cleanup'}
                       </button>
                     )}
-
-                    {readyToSave && (
-                      <button
-                        onClick={handleSaveToNotebook}
-                        className="flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm ml-auto"
-                      >
-                        <CheckCheck className="w-4 h-4" />
-                        Save to Notebook
+                    {isDone && (
+                      <button onClick={handleSaveToNotebook}
+                        className="flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm ml-auto">
+                        <CheckCheck className="w-4 h-4" /> Save to Notebook
                       </button>
                     )}
                   </div>
@@ -642,21 +535,23 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
               </div>
 
               {/* Tips */}
-              <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
-                {mobile
-                  ? <p>🎙 Tap <strong>Done Recording</strong> — AI will transcribe your audio automatically</p>
-                  : <p>🎙 Works best in Chrome or Edge · Allow microphone when prompted</p>
-                }
-                <p>💾 Saves both audio recording + transcript into your note</p>
-              </div>
+              {!isChoosing && (
+                <div className="text-[11px] text-gray-400 text-center space-y-0.5 pb-1">
+                  <p>{mobile ? '🎙 Tap Done Recording — then choose to transcribe or save audio only' : '🎙 Works best in Chrome or Edge · Allow microphone when prompted'}</p>
+                  <p>💾 Saves audio + optional transcript into your note</p>
+                </div>
+              )}
             </>
           )}
 
-          {/* TRANSCRIPT TAB (mobile) or always (desktop) */}
+          {/* ── TRANSCRIPT TAB (mobile) / always desktop ── */}
           {(!mobile || mobileTab === 'transcript') && (
             <>
-              {/* Transcribing indicator in transcript tab */}
-              {transcribing && (
+              {/* Choice card in transcript tab (mobile) */}
+              {mobile && isChoosing && <ChoiceCard />}
+
+              {/* Transcribing */}
+              {isTranscribing && (
                 <div className="flex items-center gap-3 px-3 py-3 bg-violet-50 border border-violet-200 rounded-xl">
                   <Loader2 className="w-4 h-4 text-violet-500 animate-spin flex-shrink-0" />
                   <div>
@@ -667,78 +562,50 @@ export default function VoiceRecorderPanel({ onInsert, onClose }) {
               )}
 
               {/* AI cleaned badge */}
-              {cleanedText && !cleaning && !transcribing && (
+              {cleanedText && !cleaning && !isTranscribing && (
                 <div className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-semibold">
                   <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
                   AI cleaned — filler words removed, punctuation fixed
                 </div>
               )}
 
-              {/* Audio preview in transcript tab (mobile) */}
-              {mobile && audioBlob && !isRecording && (
+              {/* Audio preview (mobile, done) */}
+              {mobile && audioBlob && isDone && (
                 <div className="p-3 bg-violet-50 border border-violet-200 rounded-xl">
-                  <p className="text-xs font-semibold text-violet-700 mb-2 flex items-center gap-1.5">
-                    🎧 Audio Preview
-                  </p>
-                  <audio
-                    controls
-                    className="w-full"
-                    src={URL.createObjectURL(audioBlob)}
-                    style={{ borderRadius: 8 }}
-                  />
+                  <p className="text-xs font-semibold text-violet-700 mb-2">🎧 Audio Preview</p>
+                  <audio controls className="w-full" src={URL.createObjectURL(audioBlob)} style={{ borderRadius: 8 }} />
                 </div>
               )}
 
               {/* Transcript box */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-xs font-semibold text-gray-600">Transcript</p>
-                  {wordCount > 0 && <span className="text-[10px] text-gray-400">{wordCount} words</span>}
+              {(isDone || isTranscribing) && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-semibold text-gray-600">Transcript</p>
+                    {wordCount > 0 && <span className="text-[10px] text-gray-400">{wordCount} words</span>}
+                  </div>
+                  <div className="min-h-[140px] max-h-[280px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed" style={{ background: '#fafafa', borderColor: '#e5e7eb' }}>
+                    {displayFinal && <span className="text-gray-800">{displayFinal}</span>}
+                    {liveText && <span style={{ color: '#7c3aed', fontStyle: 'italic' }}>{displayFinal ? ' ' : ''}{liveText}</span>}
+                    {!displayFinal && !liveText && isTranscribing && <span className="text-violet-400 italic">⏳ Transcribing…</span>}
+                    {!displayFinal && !liveText && isDone && <span className="text-gray-400 italic">No transcript — audio only.</span>}
+                  </div>
                 </div>
-                <div
-                  className="min-h-[140px] max-h-[280px] overflow-y-auto p-3 rounded-xl border text-sm leading-relaxed transition-colors"
-                  style={{ background: '#fafafa', borderColor: isRecording ? '#fca5a5' : '#e5e7eb' }}
-                >
-                  {displayFinal && <span className="text-gray-800">{displayFinal}</span>}
-                  {liveText && (
-                    <span style={{ color: '#7c3aed', fontStyle: 'italic' }}>
-                      {displayFinal ? ' ' : ''}{liveText}
-                    </span>
-                  )}
-                  {!displayFinal && !liveText && !transcribing && (
-                    <span className="text-gray-400 italic">
-                      {isRecording
-                        ? '🔴 Waiting for speech…'
-                        : 'No transcript yet. Start recording first.'}
-                    </span>
-                  )}
-                  {!displayFinal && !liveText && transcribing && (
-                    <span className="text-violet-400 italic">⏳ Transcribing…</span>
-                  )}
-                </div>
-              </div>
+              )}
 
-              {/* Mobile: AI cleanup + save in transcript tab */}
-              {mobile && hasContent && !isRecording && !transcribing && (
+              {/* Mobile: cleanup + save */}
+              {mobile && isDone && !isTranscribing && (
                 <div className="flex flex-wrap gap-2 pt-1">
-                  {!cleanedText && (
-                    <button
-                      onClick={cleanWithAI}
-                      disabled={cleaning}
-                      className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
-                    >
-                      {cleaning
-                        ? <span className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" />
-                        : <Sparkles className="w-4 h-4" />}
+                  {hasTranscript && !cleanedText && (
+                    <button onClick={cleanWithAI} disabled={cleaning}
+                      className="flex items-center gap-2 px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+                      {cleaning ? <span className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-600 rounded-full animate-spin" /> : <Sparkles className="w-4 h-4" />}
                       {cleaning ? 'Cleaning…' : '✨ AI Cleanup'}
                     </button>
                   )}
-                  <button
-                    onClick={handleSaveToNotebook}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm ml-auto"
-                  >
-                    <CheckCheck className="w-4 h-4" />
-                    Save to Notebook
+                  <button onClick={handleSaveToNotebook}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm ml-auto">
+                    <CheckCheck className="w-4 h-4" /> Save to Notebook
                   </button>
                 </div>
               )}
